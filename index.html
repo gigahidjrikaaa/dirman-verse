@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Dirman Galaxy — a universe of links</title>
+    <meta name="description" content="Dirman Galaxy is an immersive 3D universe where every star, planet and solar system is a real link — projects, drives, socials and everything Dirman. Fly through, warp to a star, and explore." />
+    <meta name="theme-color" content="#050208" />
+    <meta property="og:title" content="Dirman Galaxy" />
+    <meta property="og:description" content="An immersive 3D universe where every star is a link. Warp in and explore." />
+    <meta property="og:type" content="website" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23090512'/%3E%3Cpath d='M16 7 18.2 12.9 24.6 13.2 19.6 17.2 21.3 23.3 16 19.8 10.7 23.3 12.4 17.2 7.4 13.2 13.8 12.9Z' fill='%23E8B84B'/%3E%3Ccircle cx='16' cy='16' r='14' fill='none' stroke='%23C8102E' stroke-width='1.6'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Staatliches&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>
+      <div style="color:#dfe6ff;font-family:sans-serif;max-width:40rem;margin:4rem auto;padding:0 1rem">
+        <h1>Dirman Galaxy</h1>
+        <p>The galaxy needs JavaScript to render. Here is the full list of destinations:</p>
+        <ul>
+          <li><a href="https://github.com/">GitHub</a></li>
+        </ul>
+      </div>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Some embedded/occluded browsers starve requestAnimationFrame, freezing
+      // the 3D scene. Race every frame against a 250ms timer fallback — when
+      // native rAF flows normally the timer is a no-op.
+      ;(function () {
+        var nativeRaf = window.requestAnimationFrame.bind(window)
+        window.requestAnimationFrame = function (cb) {
+          var fired = false
+          var run = function (t) {
+            if (fired) return
+            fired = true
+            cb(t)
+          }
+          nativeRaf(run)
+          setTimeout(function () {
+            run(performance.now())
+          }, 250)
+        }
+      })()
+    </script>
+  </body>
+</html>

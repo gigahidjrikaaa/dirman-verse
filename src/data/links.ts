@@ -1,0 +1,235 @@
+import * as THREE from 'three'
+import { mulberry32 } from '../utils/random'
+import { hash01, resolveStyle } from './starStyles'
+import { loadGalaxyData, type GalaxyData } from './galaxyData'
+
+export type { BodyDef, SystemDef, SectorDef, GalaxyData } from './galaxyData'
+
+/* ============================================================================
+   LAYOUT ENGINE — turns the galaxy dataset into positioned 3D entities.
+   ----------------------------------------------------------------------------
+   The dataset comes from loadGalaxyData(): the saved #/config edits when they
+   exist, otherwise the built-in defaults. Everything below is deterministic
+   (seeded) — no need to touch it.
+
+   The galaxy is not a flat pinwheel: every system is strung along the
+   MARCH ROUTE — a single winding, climbing curve from the core to the rim,
+   one sector per stretch, honoring the long marches of Jenderal Sudirman.
+============================================================================ */
+
+export const galaxy: GalaxyData = loadGalaxyData()
+
+export const GALAXY_RADIUS = 54
+const R_MIN = 9
+const R_MAX = GALAXY_RADIUS
+
+/**
+ * The march route: a winding, climbing curve from the core (t=0) to the
+ * rim (t=1). The whole galaxy — systems, backdrop strands, the golden
+ * route tube — is strung along this one curve.
+ */
+export function trailPoint(t: number, out: THREE.Vector3): THREE.Vector3 {
+  const twist = 2.55 * Math.PI
+  const angle = t * twist
+  const r = R_MIN + t * (R_MAX - R_MIN) + Math.sin(t * 9.2) * 3.2
+  const y = Math.sin(t * Math.PI * 2.3) * 5.4 * (1 - t * 0.3)
+  return out.set(Math.cos(angle) * r, y, Math.sin(angle) * r)
+}
+
+export type EntityKind = 'sun' | 'planet' | 'moon'
+
+export interface Entity {
+  id: string
+  name: string
+  kind: EntityKind
+  url?: string
+  description?: string
+  sectorId: string
+  sectorName: string
+  sectorHue: number
+  systemId: string
+  systemName: string
+  color: THREE.Color
+  size: number
+  /** suns only: rank stars 1–3 shown in the info card */
+  importance?: number
+  /** shader archetype code (see starStyles.ts) */
+  style: number
+  /** stable per-link 0..1 random, drives procedural surface variation */
+  seed: number
+  /** index within all entities, stable, used for shader instance ids */
+  index: number
+  /** bodies orbit their sun; suns sit still */
+  orbit?: { radius: number; phase: number; speed: number }
+  center: THREE.Vector3
+  /** sector index → system index → body index, for keyboard cycling */
+  path: [number, number, number]
+}
+
+const rand = mulberry32(20261004)
+
+const entities: Entity[] = []
+const entityById = new Map<string, Entity>()
+
+const sectorCount = galaxy.sectors.length
+
+galaxy.sectors.forEach((sector, si) => {
+  const count = sector.systems.length
+  // each sector owns one stretch of the march, core → rim
+  const bandStart = si / sectorCount
+  const bandWidth = 1 / sectorCount
+
+  sector.systems.forEach((sys, yi) => {
+    const t = bandStart + ((yi + 0.5) / count) * bandWidth * 0.86 + (rand() - 0.5) * 0.02
+    const center = trailPoint(t, new THREE.Vector3())
+    // systems hug the trail without sitting exactly on it
+    center.x += (rand() + rand() - 1) * 1.5
+    center.y += (rand() + rand() - 1) * 1.1
+    center.z += (rand() + rand() - 1) * 1.5
+
+    const importance = sys.importance ?? 2
+
+    // every sun gets its own shade: cluster hue + seeded/tinted shift
+    const hueShift = sys.tint ?? (hash01(`${sys.id}:h`) - 0.5) * 24
+    const satJ = (hash01(`${sys.id}:s`) - 0.5) * 0.12
+    const lightJ = (hash01(`${sys.id}:l`) - 0.5) * 0.12
+    const hue = (((sector.hue + hueShift) % 360) + 360) % 360
+    const sunColor = new THREE.Color().setHSL(
+      hue / 360,
+      THREE.MathUtils.clamp(0.55 + satJ, 0.3, 0.8),
+      THREE.MathUtils.clamp(0.72 + lightJ, 0.55, 0.82),
+    )
+    const { code: sunStyle, seed: sunSeed } = resolveStyle(sys.id, 'sun', importance, sys.style)
+
+    // the sun itself is an entity too — clicking it opens the system card
+    const sun: Entity = {
+      id: sys.id,
+      name: sys.name,
+      kind: 'sun',
+      url: sys.url,
+      description: sys.description,
+      sectorId: sector.id,
+      sectorName: sector.name,
+      sectorHue: sector.hue,
+      systemId: sys.id,
+      systemName: sys.name,
+      color: sunColor,
+      size: 1.9 + importance * 0.7,
+      importance,
+      style: sunStyle,
+      seed: sunSeed,
+      index: entities.length,
+      center,
+      path: [si, yi, 0],
+    }
+    entities.push(sun)
+    entityById.set(sun.id, sun)
+
+    sys.bodies.forEach((body, bi) => {
+      const isMoon = body.kind === 'moon'
+      const orbitRadius = (isMoon ? 1.6 : 2.9) + bi * 1.15 + rand() * 0.4
+      const bodyId = `${sys.id}-${body.id}`
+      // every body gets its own shade within the cluster family
+      const bodyHueShift =
+        body.tint ?? (hash01(`${bodyId}:h`) - 0.5) * 24 + (isMoon ? 26 : 0)
+      const bodySatJ = (hash01(`${bodyId}:s`) - 0.5) * 0.14
+      const bodyLightJ = (hash01(`${bodyId}:l`) - 0.5) * 0.12
+      const bodyHue = (((sector.hue + bodyHueShift) % 360) + 360) % 360
+      const bodyColor = new THREE.Color().setHSL(
+        bodyHue / 360,
+        THREE.MathUtils.clamp((isMoon ? 0.38 : 0.6) + bodySatJ, 0.2, 0.75),
+        THREE.MathUtils.clamp((isMoon ? 0.66 : 0.74) + bodyLightJ, 0.5, 0.85),
+      )
+      const { code: bodyStyle, seed: bodySeed } = resolveStyle(
+        bodyId,
+        isMoon ? 'moon' : 'planet',
+        2,
+        body.style,
+      )
+      const e: Entity = {
+        id: bodyId,
+        name: body.name,
+        kind: isMoon ? 'moon' : 'planet',
+        url: body.url,
+        description: body.description,
+        sectorId: sector.id,
+        sectorName: sector.name,
+        sectorHue: sector.hue,
+        systemId: sys.id,
+        systemName: sys.name,
+        color: bodyColor,
+        size: isMoon ? 0.42 + rand() * 0.1 : 0.62 + rand() * 0.26,
+        style: bodyStyle,
+        seed: bodySeed,
+        index: entities.length,
+        orbit: {
+          radius: orbitRadius,
+          phase: rand() * Math.PI * 2,
+          speed: (0.16 / Math.sqrt(orbitRadius)) * (rand() > 0.12 ? 1 : -1),
+        },
+        center,
+        path: [si, yi, bi + 1],
+      }
+      entities.push(e)
+      entityById.set(e.id, e)
+    })
+  })
+})
+
+export const allEntities = entities
+export const bodies = entities.filter((e) => e.kind !== 'sun')
+export const totalBodyCount = bodies.length
+export const totalSystemCount = entities.filter((e) => e.kind === 'sun').length
+
+export function getEntity(id: string | null | undefined): Entity | undefined {
+  return id ? entityById.get(id) : undefined
+}
+
+/** entities ordered for keyboard cycling: sector → system → sun then its bodies */
+export const cycleOrder = [...entities].sort(
+  (a, b) => a.path[0] - b.path[0] || a.path[1] - b.path[1] || a.path[2] - b.path[2],
+)
+
+const _v = new THREE.Vector3()
+const _q = new THREE.Quaternion()
+const _e = new THREE.Euler()
+
+/** world position of an entity at galaxy-time `t` (bodies orbit, suns sit still) */
+export function entityWorldPos(entity: Entity, t: number, out: THREE.Vector3): THREE.Vector3 {
+  if (!entity.orbit) return out.copy(entity.center)
+  const { radius, phase, speed } = entity.orbit
+  const a = phase + t * speed
+  _e.set(0, a, 0)
+  _q.setFromEuler(_e)
+  return out.copy(_v.set(0, 0, radius)).applyQuaternion(_q).add(entity.center)
+}
+
+export const FOCUS_PARAM = 'focus'
+
+/** easter egg — the rogue comet that occasionally streaks across opens this */
+export const secretComet = {
+  name: 'Rogue Comet',
+  url: 'https://example.com/secret',
+  toast: '☄️ You caught the rogue comet — a hidden link, unlocked.',
+}
+
+export interface FlatLink {
+  name: string
+  url: string
+  sector: string
+  sectorId: string
+  system: string
+  id: string
+}
+
+/** every link as a flat list — used by the fallback page & search */
+export const flatLinks: FlatLink[] = entities
+  .filter((e) => e.url)
+  .map((e) => ({
+    id: e.id,
+    name: e.name,
+    url: e.url!,
+    sector: e.sectorName,
+    sectorId: e.sectorId,
+    system: e.systemName,
+  }))

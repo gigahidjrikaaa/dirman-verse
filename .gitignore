@@ -1,0 +1,14 @@
+# dependencies & build output
+node_modules/
+dist/
+
+# local tooling state & scratch
+.v2c/
+.zcode/
+.verify/
+
+# logs & OS junk
+*.local
+npm-debug.log*
+.DS_Store
+Thumbs.db

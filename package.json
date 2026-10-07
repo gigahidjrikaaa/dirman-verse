@@ -1,0 +1,47 @@
+{
+  "name": "dirman-galaxy",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Dirman Galaxy — an immersive 3D link universe where every star is a link. Built with React Three Fiber.",
+  "license": "MIT",
+  "author": "Giga Hidjrika Aura Adkhy (https://github.com/gigahidjrikaaa)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gigahidjrikaaa/dirman-verse.git"
+  },
+  "keywords": [
+    "threejs",
+    "react-three-fiber",
+    "webgl",
+    "galaxy",
+    "portfolio",
+    "link-in-bio",
+    "space"
+  ],
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.6",
+    "@react-three/fiber": "^9.3.0",
+    "@react-three/postprocessing": "^3.0.4",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "three": "^0.180.0",
+    "zustand": "^5.0.8"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@types/three": "^0.180.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "~5.9.2",
+    "vite": "^7.1.0"
+  }
+}
