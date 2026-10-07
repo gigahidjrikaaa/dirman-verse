@@ -20,21 +20,31 @@ export type { BodyDef, SystemDef, SectorDef, GalaxyData } from './galaxyData'
 export const galaxy: GalaxyData = loadGalaxyData()
 
 export const GALAXY_RADIUS = 54
-const R_MIN = 9
-const R_MAX = GALAXY_RADIUS
 
 /**
- * The march route: a winding, climbing curve from the core (t=0) to the
- * rim (t=1). The whole galaxy — systems, backdrop strands, the golden
- * route tube — is strung along this one curve.
+ * The Nine-Pointed Mandala: nine identical character tails at perfect 40°
+ * intervals. Tail k carries cluster k (mod 9); systems sit on mirrored
+ * rings — system yi of every cluster shares the same tail fraction, so the
+ * whole formation is rotationally symmetric.
  */
-export function trailPoint(t: number, out: THREE.Vector3): THREE.Vector3 {
-  const twist = 2.55 * Math.PI
-  const angle = t * twist
-  const r = R_MIN + t * (R_MAX - R_MIN) + Math.sin(t * 9.2) * 3.2
-  const y = Math.sin(t * Math.PI * 2.3) * 5.4 * (1 - t * 0.3)
-  return out.set(Math.cos(angle) * r, y, Math.sin(angle) * r)
+export const TAIL_COUNT = 9
+const TAIL_CORE = 10
+const TAIL_TIP = GALAXY_RADIUS + 2
+const TAIL_SWEEP = 1.15 // radians the tail curls over its full length
+const COUNCIL_T = 0.62 // tail fraction where each cluster's first system sits
+
+/** point along tail k's symmetric arc (t: 0 = core, 1 = tip) */
+export function tailPlacement(k: number, t: number, out: THREE.Vector3): THREE.Vector3 {
+  const base = (k / TAIL_COUNT) * Math.PI * 2
+  const ang = base + t * TAIL_SWEEP
+  const r = TAIL_CORE + t * (TAIL_TIP - TAIL_CORE)
+  const y = Math.sin(t * Math.PI) * 1.1
+  return out.set(Math.cos(ang) * r, y, Math.sin(ang) * r)
 }
+
+/** the circle through every cluster's first system — the Council Ring */
+export const COUNCIL_RADIUS = TAIL_CORE + COUNCIL_T * (TAIL_TIP - TAIL_CORE)
+export const COUNCIL_Y = Math.sin(COUNCIL_T * Math.PI) * 1.1
 
 export type EntityKind = 'sun' | 'planet' | 'moon'
 
@@ -71,21 +81,17 @@ const rand = mulberry32(20261004)
 const entities: Entity[] = []
 const entityById = new Map<string, Entity>()
 
-const sectorCount = galaxy.sectors.length
-
 galaxy.sectors.forEach((sector, si) => {
-  const count = sector.systems.length
-  // each sector owns one stretch of the march, core → rim
-  const bandStart = si / sectorCount
-  const bandWidth = 1 / sectorCount
+  const tail = si % TAIL_COUNT
 
   sector.systems.forEach((sys, yi) => {
-    const t = bandStart + ((yi + 0.5) / count) * bandWidth * 0.86 + (rand() - 0.5) * 0.02
-    const center = trailPoint(t, new THREE.Vector3())
-    // systems hug the trail without sitting exactly on it
-    center.x += (rand() + rand() - 1) * 1.5
-    center.y += (rand() + rand() - 1) * 1.1
-    center.z += (rand() + rand() - 1) * 1.5
+    // mirrored rings: system yi of every cluster shares the same fraction
+    const t = Math.min(COUNCIL_T + yi * 0.15, 0.94)
+    const center = tailPlacement(tail, t, new THREE.Vector3())
+    // systems hold their station — minimal scatter, symmetry first
+    center.x += (rand() + rand() - 1) * 0.5
+    center.y += (rand() + rand() - 1) * 0.35
+    center.z += (rand() + rand() - 1) * 0.5
 
     const importance = sys.importance ?? 2
 

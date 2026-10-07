@@ -41,132 +41,112 @@ export interface GalaxyData {
   sectors: SectorDef[]
 }
 
+/**
+ * The default dataset: nine clusters, one per character tail, each with a
+ * themed system and placeholder links. Rename or remap them freely in the
+ * #/config link manager — the layout stays symmetric for any cluster count
+ * (clusters wrap around the nine tails in order).
+ */
 export const DEFAULT_GALAXY: GalaxyData = {
   sectors: [
     {
-      id: 'important',
-      name: 'Important Links',
-      hue: 46,
-      systems: [
-        {
-          id: 'command',
-          name: 'Command Hub',
-          importance: 3,
-          description: 'The center of the war map.',
-          bodies: [
-            { id: 'main-site', name: 'Main Site', url: 'https://example.com/', description: 'The flagship gate.' },
-            { id: 'dashboard', name: 'Dashboard', url: 'https://example.com/dashboard', kind: 'moon' },
-          ],
-        },
-        {
-          id: 'quick',
-          name: 'Quick Access',
-          importance: 2,
-          description: 'Everyday essentials, one warp away.',
-          bodies: [
-            { id: 'mail', name: 'Mail', url: 'https://mail.google.com/' },
-            { id: 'calendar', name: 'Calendar', url: 'https://calendar.google.com/', kind: 'moon' },
-          ],
-        },
-      ],
+      id: 'integrity', name: 'Integrity', hue: 46,
+      systems: [{
+        id: 'ethics-vault', name: 'Ethics Vault', importance: 3,
+        description: 'The compass of the realm.',
+        bodies: [
+          { id: 'conduct', name: 'Code of Conduct', url: 'https://example.com/conduct', description: 'The oath every star swears.' },
+          { id: 'training', name: 'Integrity Training', url: 'https://example.com/training', kind: 'moon' },
+        ],
+      }],
     },
     {
-      id: 'docs',
-      name: 'Documentation',
-      hue: 356,
-      systems: [
-        {
-          id: 'archive',
-          name: 'Docs Archive',
-          importance: 2,
-          description: 'The written doctrine.',
-          bodies: [
-            { id: 'library', name: 'Policy Library', url: 'https://example.com/docs' },
-            { id: 'guidelines', name: 'Guidelines', url: 'https://example.com/guidelines', kind: 'moon' },
-          ],
-        },
-        {
-          id: 'reports',
-          name: 'Reports Station',
-          importance: 1,
-          description: 'After-action records.',
-          bodies: [
-            { id: 'quarterly', name: 'Quarterly Reports', url: 'https://example.com/reports' },
-          ],
-        },
-      ],
+      id: 'courage', name: 'Courage', hue: 355,
+      systems: [{
+        id: 'bravefront', name: 'Bravefront', importance: 2,
+        description: 'Where hard calls are logged.',
+        bodies: [
+          { id: 'decisions', name: 'Hard Decisions', url: 'https://example.com/decisions' },
+          { id: 'feedback', name: 'Feedback Channel', url: 'https://example.com/feedback', kind: 'moon' },
+        ],
+      }],
     },
     {
-      id: 'academic',
-      name: 'Academic Materials',
-      hue: 282,
-      systems: [
-        {
-          id: 'lecture',
-          name: 'Lecture Hall',
-          importance: 3,
-          description: 'Doctrine from the academy.',
-          bodies: [
-            { id: 'notes', name: 'Course Notes', url: 'https://example.com/notes' },
-            { id: 'slides', name: 'Slides', url: 'https://example.com/slides', kind: 'moon' },
-          ],
-        },
-        {
-          id: 'research',
-          name: 'Research Ring',
-          importance: 2,
-          url: 'https://scholar.google.com/',
-          description: 'The frontier, mapped.',
-          bodies: [
-            { id: 'papers', name: 'Papers', url: 'https://scholar.google.com/' },
-            { id: 'journals', name: 'Journals', url: 'https://example.com/journals', kind: 'moon' },
-          ],
-        },
-      ],
+      id: 'vision', name: 'Strategic Vision', hue: 285,
+      systems: [{
+        id: 'horizon', name: 'Horizon', importance: 2,
+        description: 'The map of what comes next.',
+        bodies: [
+          { id: 'roadmap', name: 'Roadmap 2030', url: 'https://example.com/roadmap' },
+          { id: 'strategy', name: 'Strategy Deck', url: 'https://example.com/strategy', kind: 'moon' },
+        ],
+      }],
     },
     {
-      id: 'forms',
-      name: 'Forms',
-      hue: 222,
-      systems: [
-        {
-          id: 'registry',
-          name: 'Registry',
-          importance: 2,
-          description: 'Paperwork, filed and flying.',
-          bodies: [
-            { id: 'requests', name: 'Request Forms', url: 'https://example.com/forms' },
-            { id: 'templates', name: 'Templates', url: 'https://example.com/templates', kind: 'moon' },
-          ],
-        },
-      ],
+      id: 'communication', name: 'Communication', hue: 187,
+      systems: [{
+        id: 'signal-tower', name: 'Signal Tower', importance: 2,
+        description: 'Every front hears every order.',
+        bodies: [
+          { id: 'announcements', name: 'Announcements', url: 'https://example.com/announcements' },
+          { id: 'newsletter', name: 'Newsletter', url: 'https://example.com/newsletter', kind: 'moon' },
+        ],
+      }],
     },
     {
-      id: 'hr',
-      name: 'Human Resources',
-      hue: 187,
-      systems: [
-        {
-          id: 'people',
-          name: 'People Hub',
-          importance: 2,
-          description: 'The crew manifest.',
-          bodies: [
-            { id: 'directory', name: 'Directory', url: 'https://example.com/directory' },
-            { id: 'org-chart', name: 'Org Chart', url: 'https://example.com/org', kind: 'moon' },
-          ],
-        },
-        {
-          id: 'welfare',
-          name: 'Welfare Station',
-          importance: 1,
-          description: 'Take care of the troops.',
-          bodies: [
-            { id: 'benefits', name: 'Benefits', url: 'https://example.com/benefits' },
-            { id: 'careers', name: 'Careers', url: 'https://example.com/careers', kind: 'moon' },
-          ],
-        },
-      ],
+      id: 'collaboration', name: 'Collaboration', hue: 118,
+      systems: [{
+        id: 'common-ground', name: 'Common Ground', importance: 2,
+        description: 'Shared tables, shared wins.',
+        bodies: [
+          { id: 'team-spaces', name: 'Team Spaces', url: 'https://example.com/teams' },
+          { id: 'boards', name: 'Shared Boards', url: 'https://example.com/boards', kind: 'moon' },
+        ],
+      }],
+    },
+    {
+      id: 'resilience', name: 'Resilience', hue: 22,
+      systems: [{
+        id: 'ironhold', name: 'Ironhold', importance: 2,
+        description: 'Unbroken through the longest march.',
+        bodies: [
+          { id: 'continuity', name: 'Continuity Plans', url: 'https://example.com/continuity' },
+          { id: 'reviews', name: 'Incident Reviews', url: 'https://example.com/reviews', kind: 'moon' },
+        ],
+      }],
+    },
+    {
+      id: 'initiative', name: 'Initiative', hue: 12,
+      systems: [{
+        id: 'firstlight', name: 'Firstlight', importance: 2,
+        description: 'First to move, without orders.',
+        bodies: [
+          { id: 'lab', name: 'Innovation Lab', url: 'https://example.com/lab' },
+          { id: 'ideas', name: 'Idea Board', url: 'https://example.com/ideas', kind: 'moon' },
+        ],
+      }],
+    },
+    {
+      id: 'empathy', name: 'Empathy', hue: 335,
+      systems: [{
+        id: 'heartline', name: 'Heartline', importance: 2,
+        description: 'The strength to care.',
+        bodies: [
+          { id: 'care', name: 'Care Programs', url: 'https://example.com/care' },
+          { id: 'support', name: 'Support Portal', url: 'https://example.com/support', kind: 'moon' },
+        ],
+      }],
+    },
+    {
+      id: 'accountability', name: 'Accountability', hue: 55,
+      systems: [{
+        id: 'ledger', name: 'Ledger', importance: 2,
+        description: 'Every outcome, owned.',
+        bodies: [
+          { id: 'okr', name: 'OKR Tracker', url: 'https://example.com/okr' },
+          { id: 'audit', name: 'Audit Trail', url: 'https://example.com/audit', kind: 'moon' },
+        ],
+      }],
     },
   ],
 }

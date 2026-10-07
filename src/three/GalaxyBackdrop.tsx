@@ -3,16 +3,16 @@ import * as THREE from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
 import { galaxyVertexShader, galaxyFragmentShader } from '../shaders/galaxy.glsl'
 import { useGalaxy } from '../state/useGalaxy'
-import { GALAXY_RADIUS } from '../data/links'
+import { GALAXY_RADIUS, allEntities } from '../data/links'
 import { characterValues } from '../data/characters'
 import { mulberry32 } from '../utils/random'
 
 const COUNTS = { high: 65000, medium: 30000, low: 9000 } as const
 
 /**
- * The spiral-galaxy particle backdrop: one Points draw call, particles
- * distributed along `arms` twisted spiral arms, differentially rotated
- * in the vertex shader so the core spins faster than the rim.
+ * The Nine-Pointed Mandala backdrop: nine identical character tails at
+ * perfect 40° intervals, a diffuse disk, and a gunungan core — one Points
+ * draw call. Particles dim around each clickable system (clearings).
  */
 export function GalaxyBackdrop() {
   const quality = useGalaxy((s) => s.quality)
@@ -39,63 +39,51 @@ export function GalaxyBackdrop() {
     // diffuse disk for volume, and a gunungan-profile core (tall bulge)
     const tailCount = Math.floor(count * 0.46)
 
-    // per-tail particle share, weighted by each value's density
-    const weightSum = characterValues.reduce((s, c) => s + c.density, 0)
-    const tailShares = characterValues.map((c) =>
-      Math.floor((tailCount * c.density) / weightSum),
-    )
-    let leftover = tailCount - tailShares.reduce((s, n) => s + n, 0)
-    for (let k = 0; leftover > 0; k = (k + 1) % characterValues.length, leftover--) {
-      tailShares[k]++
-    }
+    // per-tail particle share: identical arcs — symmetry through form,
+    // distinction through character shade
+    const perTail = Math.floor(tailCount / characterValues.length)
 
     const CORE_R = 8.5
-    const RIM = GALAXY_RADIUS + 4
+    const TAIL_TIP = GALAXY_RADIUS + 2
+    const TAIL_SWEEP = 1.15 // shared curl — every tail has the same shape
+    const TAIL_ARC = 1.1 // shared gentle arch
 
-    // each value spawns its own tail with its own shape DNA
     let idx = 0
     characterValues.forEach((c, k) => {
-      const baseAngle = (k / characterValues.length) * Math.PI * 2 + rand() * 0.3
-      const phase = rand() * Math.PI * 2
+      const baseAngle = (k / characterValues.length) * Math.PI * 2
       const tailColor = new THREE.Color().setHSL(c.hue / 360, c.sat, c.light)
 
-      for (let n = 0; n < tailShares[k]; n++, idx++) {
-        const tt = Math.pow(rand(), 0.85) * c.length
-        let ang = baseAngle + c.curl * tt * Math.PI * 2
-        ang += Math.sin(tt * c.waveFreq * Math.PI * 2 + phase) * c.waveAmp
-        const r = CORE_R + tt * (RIM - CORE_R) + (rand() - 0.5) * 3
+      for (let n = 0; n < perTail; n++, idx++) {
+        const i3 = idx * 3
+        const tt = rand()
+        let ang = baseAngle + tt * TAIL_SWEEP
+        ang += Math.sin(tt * 34.0 + k * 2.4) * 0.018 // hairline ripple
+        const r = CORE_R + tt * (TAIL_TIP - CORE_R) + (rand() - 0.5) * 2.2
 
-        // lateral spread widens toward the tip; twin values braid two laces
-        let offset = gauss() * c.width * (0.35 + tt * 1.2)
-        if (c.twin) offset += (n % 2 === 0 ? 1 : -1) * c.width * 0.8 * (0.35 + tt)
-
+        const offset = gauss() * 2.0 * (0.35 + tt * 1.1)
         const px = -Math.sin(ang)
         const pz = Math.cos(ang)
         const x = Math.cos(ang) * r + px * offset
         const z = Math.sin(ang) * r + pz * offset
-        const y =
-          Math.sin(tt * c.waveFreq * Math.PI + phase) * c.elevAmp +
-          c.lift * tt * 5 +
-          gauss() * (0.35 + c.width * 0.14)
+        const y = Math.sin(tt * Math.PI) * TAIL_ARC + gauss() * 0.9
 
         // brighter along the spine, softening toward the rim
-        const spine = 1 - Math.min(Math.abs(offset) / (c.width * 1.8), 1)
+        const spine = 1 - Math.min(Math.abs(offset) / 3.6, 1)
         let shade = 0.55 + spine * 0.5 + rand() * 0.35
-        if (c.id === 'empathy') shade *= 0.78 // the soft one
         let sparkleSize = 1
         if (rand() < 0.09) {
-          sparkleSize = 1 + c.sparkle * 0.45
+          sparkleSize = 1.5
           shade *= 1.3
         }
 
-        positions[idx * 3] = x
-        positions[idx * 3 + 1] = y
-        positions[idx * 3 + 2] = z
+        positions[i3] = x
+        positions[i3 + 1] = y
+        positions[i3 + 2] = z
 
-        mixed.copy(tailColor).lerp(inside, (1 - tt) * 0.45).lerp(outside, tt * 0.22)
-        colors[idx * 3] = mixed.r * shade
-        colors[idx * 3 + 1] = mixed.g * shade
-        colors[idx * 3 + 2] = mixed.b * shade
+        mixed.copy(tailColor).lerp(inside, (1 - tt) * 0.4).lerp(outside, tt * 0.2)
+        colors[i3] = mixed.r * shade
+        colors[i3 + 1] = mixed.g * shade
+        colors[i3 + 2] = mixed.b * shade
 
         scales[idx] = (0.35 + Math.pow(rand(), 3) * 2.0) * sparkleSize
       }
@@ -150,6 +138,10 @@ export function GalaxyBackdrop() {
         uTime: { value: reduced ? 40 : 0 },
         uSize: { value: 240 },
         uPixelRatio: { value: 1 },
+        // darker pockets behind the clickable systems (static positions)
+        uClear: {
+          value: allEntities.filter((e) => e.kind === 'sun').map((s) => s.center.clone()),
+        },
       },
     }
     // rebuild when quality tier changes particle count

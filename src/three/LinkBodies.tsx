@@ -25,7 +25,9 @@ export function LinkBodies() {
   const size = useThree((s) => s.size)
   const gl = useThree((s) => s.gl)
 
-  const count = allEntities.length
+  // one extra beam instance per sun — vertical light pillars over systems
+  const sunCount = useMemo(() => allEntities.filter((e) => e.kind === 'sun').length, [])
+  const count = allEntities.length + sunCount
 
   const { geometry, uniforms } = useMemo(() => {
     const centers = new Float32Array(count * 3)
@@ -45,13 +47,32 @@ export function LinkBodies() {
       colors[i * 3] = e.color.r
       colors[i * 3 + 1] = e.color.g
       colors[i * 3 + 2] = e.color.b
-      sizes[i] = e.size
+      sizes[i] = e.size * (e.kind === 'sun' ? 1.25 : 1.0)
       phases[i] = (i * 0.618) % 1
       kinds[i] = e.kind === 'sun' ? 1 : 0
       chartedFlags[i] = 0
       indices[i] = i
       styles[i] = e.style
       seeds[i] = e.seed
+    })
+
+    // beacon pillars (aKind = 2): one per sun, rising from its center
+    const suns = allEntities.filter((e) => e.kind === 'sun')
+    suns.forEach((s, j) => {
+      const i = allEntities.length + j
+      centers[i * 3] = s.center.x
+      centers[i * 3 + 1] = s.center.y
+      centers[i * 3 + 2] = s.center.z
+      colors[i * 3] = s.color.r
+      colors[i * 3 + 1] = s.color.g
+      colors[i * 3 + 2] = s.color.b
+      sizes[i] = s.size
+      phases[i] = (j * 0.383) % 1
+      kinds[i] = 2 // beacon beam
+      chartedFlags[i] = 0
+      indices[i] = -2 // never hover/selected
+      styles[i] = 0
+      seeds[i] = (i * 0.383) % 1
     })
 
     const geo = new THREE.PlaneGeometry(1, 1)
@@ -73,7 +94,7 @@ export function LinkBodies() {
         uSelectedIndex: { value: -1 },
       },
     }
-  }, [count])
+  }, [count, sunCount])
 
   const indexById = useMemo(() => {
     const m = new Map<string, number>()

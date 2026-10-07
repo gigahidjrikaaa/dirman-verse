@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { useFrame } from '@react-three/fiber'
-import { allEntities } from '../data/links'
+import { COUNCIL_RADIUS, COUNCIL_Y } from '../data/links'
 import { useGalaxy } from '../state/useGalaxy'
 
 const PULSES = 3
@@ -24,9 +24,8 @@ function emberTexture(): THREE.Texture {
 }
 
 /**
- * Jalur Perjuangan — the golden route. A soft tube threads every sun in
- * march order, with ember pulses traveling the line: the trail of the
- * long march rendered through the whole galaxy.
+ * The Council Ring — a clean circle threading every cluster's first system
+ * at the same radius, with ember pulses traveling the line.
  */
 export function MarchRoute() {
   const reduced = useGalaxy((s) => s.settings.reducedMotion)
@@ -34,13 +33,18 @@ export function MarchRoute() {
   const pulsesRef = useRef<(THREE.Sprite | null)[]>([])
 
   const { curve, geometry } = useMemo(() => {
-    const suns = allEntities.filter((e) => e.kind === 'sun')
-    const curve = new THREE.CatmullRomCurve3(
-      suns.map((s) => s.center.clone()),
-      false,
-      'catmullrom',
-      0.65,
-    )
+    const pts: THREE.Vector3[] = []
+    for (let i = 0; i < 48; i++) {
+      const a = (i / 48) * Math.PI * 2
+      pts.push(
+        new THREE.Vector3(
+          Math.cos(a) * COUNCIL_RADIUS,
+          COUNCIL_Y,
+          Math.sin(a) * COUNCIL_RADIUS,
+        ),
+      )
+    }
+    const curve = new THREE.CatmullRomCurve3(pts, true, 'catmullrom', 0.5)
     // tube tessellation scales with the quality tier
     const segs = quality === 'high' ? 260 : quality === 'medium' ? 180 : 110
     const rad = quality === 'low' ? 6 : 8

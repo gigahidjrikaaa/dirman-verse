@@ -28,6 +28,7 @@ varying float vSelected;
 varying float vFade;
 varying float vStyle;
 varying float vSeed;
+varying float vBeamY;
 
 void main() {
   vUv = uv;
@@ -37,6 +38,21 @@ void main() {
   vStyle = aStyle;
   vSeed = aSeed;
   vSelected = step(abs(aIndex - uSelectedIndex), 0.5);
+
+  // beacon pillar: a vertical, camera-facing quad fading upward
+  if (aKind > 1.5) {
+    vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
+    right.y = 0.0;
+    right = normalize(right);
+    float h = aSize * 5.0;
+    float w = aSize * 0.9;
+    vec3 wp = aCenter + right * (position.x * w) + vec3(0.0, (position.y + 0.5) * h, 0.0);
+    vec4 mv = viewMatrix * vec4(wp, 1.0);
+    gl_Position = projectionMatrix * mv;
+    vFade = 1.0;
+    vBeamY = position.y + 0.5;
+    return;
+  }
 
   vec4 mv = modelViewMatrix * vec4(aCenter, 1.0);
 
@@ -67,6 +83,7 @@ varying float vSelected;
 varying float vFade;
 varying float vStyle;
 varying float vSeed;
+varying float vBeamY;
 
 const vec3 GOLD = vec3(1.0, 0.8, 0.38);
 const vec3 WHITE = vec3(1.0, 0.95, 0.8);
@@ -79,6 +96,15 @@ vec2 rot2(vec2 p, float a) {
 }
 
 void main() {
+  // beacon pillar: fades with height, soft toward the horizontal edges
+  if (vKind > 1.5) {
+    float edge = smoothstep(0.5, 0.12, abs(vUv.x - 0.5));
+    float a = (1.0 - vBeamY) * edge * 0.22 * (0.8 + 0.2 * sin(uTime * 2.0 + vSeed * 12.0));
+    if (a < 0.004) discard;
+    gl_FragColor = vec4(vColor, a);
+    return;
+  }
+
   vec2 p = (vUv - 0.5) * 2.0;
   float d = length(p);
   float theta = atan(p.y, p.x);
@@ -90,11 +116,11 @@ void main() {
     // ================= suns =================
     if (vStyle < 1.5) {
       // classic: the original blazing core + corona
-      core = pow(max(0.0, 1.0 - d), 2.2) * 1.5 + smoothstep(0.2, 0.0, d) * 1.1;
-      halo = pow(max(0.0, 1.0 - d), 1.05) * 0.38;
+      core = pow(max(0.0, 1.0 - d), 2.2) * 1.7 + smoothstep(0.2, 0.0, d) * 1.25;
+      halo = pow(max(0.0, 1.0 - d), 1.05) * 0.42;
     } else if (vStyle < 2.5) {
       // giant: wide, soft, layered corona
-      core = pow(max(0.0, 1.0 - d), 1.6) * 1.1 + smoothstep(0.3, 0.0, d) * 0.85;
+      core = pow(max(0.0, 1.0 - d), 1.6) * 1.25 + smoothstep(0.3, 0.0, d) * 0.95;
       halo = pow(max(0.0, 1.0 - d), 0.85) * 0.55;
       halo += smoothstep(0.5, 0.25, d) * 0.18;
     } else if (vStyle < 3.5) {
@@ -103,7 +129,7 @@ void main() {
         + 0.2 * sin(theta * 9.0 + vSeed * 21.0 + uTime * 1.5)
         + 0.11 * sin(theta * 5.0 - uTime * 1.1);
       float rr = d / flare;
-      core = pow(max(0.0, 1.0 - rr), 2.0) * 1.35 + smoothstep(0.22, 0.0, rr) * 1.0;
+      core = pow(max(0.0, 1.0 - rr), 2.0) * 1.5 + smoothstep(0.22, 0.0, rr) * 1.1;
       halo = pow(max(0.0, 1.0 - rr), 1.1) * 0.42;
     } else if (vStyle < 4.5) {
       // pulse: tight core with strobing energy rings
@@ -121,11 +147,17 @@ void main() {
            + pow(max(0.0, 1.0 - d2), 2.4) * 0.95 + smoothstep(0.18, 0.0, d2) * 0.75;
       halo = pow(max(0.0, 1.0 - min(d1, d2)), 1.1) * 0.32;
     }
+
+    // star-flare cross: the clickable beacon, breathing on every sun
+    vec2 fp = rot2(p, vSeed * 3.1416);
+    float flareCross = pow(max(0.0, 1.0 - abs(fp.x) * 1.7), 7.0)
+      + pow(max(0.0, 1.0 - abs(fp.y) * 1.7), 7.0);
+    halo += flareCross * smoothstep(1.0, 0.15, d) * (0.5 + 0.22 * sin(uTime * 1.7 + vSeed * 24.0));
   } else {
     // ================= planets & moons =================
     float body = 1.0 - smoothstep(0.4, 0.5, d);
-    float bodyShade = mix(0.75, 1.45, smoothstep(0.45, 0.05, d));
-    float rim = (1.0 - smoothstep(0.0, 0.09, abs(d - 0.44))) * 0.3;
+    float bodyShade = mix(0.8, 1.55, smoothstep(0.45, 0.05, d));
+    float rim = (1.0 - smoothstep(0.0, 0.09, abs(d - 0.44))) * 0.36;
     float surface = 0.0;
 
     if (vStyle < 10.5) {
