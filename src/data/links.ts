@@ -17,8 +17,8 @@ export type { BodyDef, SystemDef, SectorDef, GalaxyData } from './galaxyData'
    one sector per stretch, honoring the long marches of Jenderal Sudirman.
 ============================================================================ */
 
-export const galaxy: GalaxyData = loadGalaxyData()
-
+/** the live dataset — defaults, localStorage save, or backend (via setGalaxyData) */
+export let galaxy: GalaxyData = loadGalaxyData()
 export const GALAXY_RADIUS = 54
 
 /**
@@ -76,22 +76,37 @@ export interface Entity {
   path: [number, number, number]
 }
 
-const rand = mulberry32(20261004)
-
 const entities: Entity[] = []
 const entityById = new Map<string, Entity>()
 
-galaxy.sectors.forEach((sector, si) => {
-  const tail = si % TAIL_COUNT
+// derived state — rebuilt by buildLayout() below
+export const allEntities = entities
+export let bodies: Entity[] = []
+export let totalBodyCount = 0
+export let totalSystemCount = 0
+export let cycleOrder: Entity[] = []
+export let flatLinks: FlatLink[] = []
 
-  sector.systems.forEach((sys, yi) => {
-    // mirrored rings: system yi of every cluster shares the same fraction
-    const t = Math.min(COUNCIL_T + yi * 0.15, 0.94)
-    const center = tailPlacement(tail, t, new THREE.Vector3())
-    // systems hold their station — minimal scatter, symmetry first
-    center.x += (rand() + rand() - 1) * 0.5
-    center.y += (rand() + rand() - 1) * 0.35
-    center.z += (rand() + rand() - 1) * 0.5
+/**
+ * Rebuilds the whole galaxy layout from `galaxy`. Called once at module init
+ * and again by setGalaxyData() when a backend dataset arrives pre-render.
+ */
+function buildLayout() {
+  entities.length = 0
+  entityById.clear()
+  const rand = mulberry32(20261004)
+
+  galaxy.sectors.forEach((sector, si) => {
+    const tail = si % TAIL_COUNT
+
+    sector.systems.forEach((sys, yi) => {
+      // mirrored rings: system yi of every cluster shares the same fraction
+      const t = Math.min(COUNCIL_T + yi * 0.15, 0.94)
+      const center = tailPlacement(tail, t, new THREE.Vector3())
+      // systems hold their station — minimal scatter, symmetry first
+      center.x += (rand() + rand() - 1) * 0.5
+      center.y += (rand() + rand() - 1) * 0.35
+      center.z += (rand() + rand() - 1) * 0.5
 
     const importance = sys.importance ?? 2
 
@@ -180,21 +195,37 @@ galaxy.sectors.forEach((sector, si) => {
       entityById.set(e.id, e)
     })
   })
-})
+  })
 
-export const allEntities = entities
-export const bodies = entities.filter((e) => e.kind !== 'sun')
-export const totalBodyCount = bodies.length
-export const totalSystemCount = entities.filter((e) => e.kind === 'sun').length
+  bodies = entities.filter((e) => e.kind !== 'sun')
+  totalBodyCount = bodies.length
+  totalSystemCount = entities.filter((e) => e.kind === 'sun').length
+  cycleOrder = [...entities].sort(
+    (a, b) => a.path[0] - b.path[0] || a.path[1] - b.path[1] || a.path[2] - b.path[2],
+  )
+  flatLinks = entities
+    .filter((e) => e.url)
+    .map((e) => ({
+      id: e.id,
+      name: e.name,
+      url: e.url!,
+      sector: e.sectorName,
+      sectorId: e.sectorId,
+      system: e.systemName,
+    }))
+}
+
+buildLayout()
+
+/** swap the dataset and rebuild the whole layout (used by the backend boot) */
+export function setGalaxyData(data: GalaxyData) {
+  galaxy = data
+  buildLayout()
+}
 
 export function getEntity(id: string | null | undefined): Entity | undefined {
   return id ? entityById.get(id) : undefined
 }
-
-/** entities ordered for keyboard cycling: sector → system → sun then its bodies */
-export const cycleOrder = [...entities].sort(
-  (a, b) => a.path[0] - b.path[0] || a.path[1] - b.path[1] || a.path[2] - b.path[2],
-)
 
 const _v = new THREE.Vector3()
 const _q = new THREE.Quaternion()
@@ -227,15 +258,3 @@ export interface FlatLink {
   system: string
   id: string
 }
-
-/** every link as a flat list — used by the fallback page & search */
-export const flatLinks: FlatLink[] = entities
-  .filter((e) => e.url)
-  .map((e) => ({
-    id: e.id,
-    name: e.name,
-    url: e.url!,
-    sector: e.sectorName,
-    sectorId: e.sectorId,
-    system: e.systemName,
-  }))

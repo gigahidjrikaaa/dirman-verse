@@ -82,12 +82,44 @@ info card's **Share star** button copies it.
 
 Open **`#/config`** (or ⚙ Flight settings → Link manager) to add, edit,
 reorder and delete clusters, systems and links through forms — including each
-star's archetype (`style`) and hue shift (`tint`). Saving stores the dataset
-in your browser's localStorage and the galaxy boots from it; **Reset to
-defaults** restores the built-in dataset.
+star's archetype (`style`) and hue shift (`tint`).
 
-To publish changes for every visitor, use the JSON tab's **Download** and
-replace the `sectors` array in `src/data/links.ts`.
+- **Without a backend** (default): saving stores the dataset in the current
+  browser's localStorage. Great for a single device; **Reset to defaults**
+  restores the built-in dataset.
+- **With a backend** (below): *Save & launch* publishes to the database, so
+  every device and every visitor sees the same galaxy. To pull the published
+  dataset into the editor on another device, just open `#/config` there — it
+  loads automatically.
+
+## Backend (multi-device editing)
+
+The optional backend is two serverless functions plus any Postgres database
+(free tiers of [Neon](https://neon.tech) or [Supabase](https://supabase.com)
+both work):
+
+```
+api/links.ts       GET  /api/links   → published dataset (public)
+                   POST /api/links   → publish (needs X-Admin-Password)
+api/revisions.ts   GET  /api/revisions → last 20 changes (auth)
+api/_db.ts         connection + lazy schema bootstrap
+```
+
+Setup on Vercel (or any Node host):
+
+1. Create a Postgres database and copy its connection string.
+2. Set environment variables on your host:
+   - `DATABASE_URL` — the Postgres connection string (`?sslmode=require`)
+   - `ADMIN_PASSWORD` — the shared editor password for the link manager
+3. Deploy. The schema self-creates on the first API call.
+4. In `#/config` → **Backend sync**: set the API base (`/api` when the site
+   and API share a domain), the admin password and your name → *Test
+   connection* → *Publish to backend*.
+
+Writes require `ADMIN_PASSWORD`; reads are public (the data is the site
+content). Every publish is recorded in a revisions table, so the change
+history is queryable. Without a configured backend the site behaves exactly
+as before — localStorage and built-in defaults.
 
 ## Adding your links in code
 

@@ -1038,6 +1038,113 @@ button {
   align-items: center;
 }
 
+/* ---------------- boot splash ---------------- */
+#boot {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  transition: opacity 0.6s ease;
+}
+#boot.boot-out { opacity: 0; pointer-events: none; }
+#boot .boot-star {
+  font-size: 2rem;
+  color: var(--gold);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+/* ---------------- backend panel ---------------- */
+
+.config-backend {
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: rgba(255, 236, 200, 0.02);
+}
+
+.config-backend-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 14px;
+  background: none;
+  border: none;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.config-backend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--faint);
+  flex: none;
+}
+.config-backend-dot[data-state='checking'] { background: var(--gold); animation: pulse 1s infinite; }
+.config-backend-dot[data-state='ok'] { background: #6fe3a0; box-shadow: 0 0 8px #6fe3a0; }
+.config-backend-dot[data-state='error'] { background: var(--red); box-shadow: 0 0 8px var(--red); }
+
+.config-backend-title {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.config-backend-sub {
+  margin-left: auto;
+  font-size: 0.68rem;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 45%;
+}
+
+.config-backend-body {
+  padding: 2px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 12px;
+}
+
+.config-backend-msg {
+  font-size: 0.8rem;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line-soft);
+  color: var(--dim);
+}
+.config-backend-msg[data-state='ok'] { color: #8fe6b4; border-color: rgba(111, 227, 160, 0.3); }
+.config-backend-msg[data-state='error'] { color: #ff9d9d; border-color: rgba(210, 39, 48, 0.35); }
+
+.config-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.config-revisions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.config-rev {
+  display: flex;
+  gap: 14px;
+  font-size: 0.7rem;
+  color: var(--faint);
+  font-family: ui-monospace, Consolas, monospace;
+  padding: 3px 6px;
+  border-radius: 6px;
+}
+.config-rev:hover { background: rgba(232, 184, 75, 0.05); }
+
 /* ---------------- config page (#/config) ---------------- */
 
 .config-page {

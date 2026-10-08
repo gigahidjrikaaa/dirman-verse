@@ -14,6 +14,16 @@ import {
   type SectorDef,
   type SystemDef,
 } from '../data/galaxyData'
+import {
+  backendConfigured,
+  fetchBackendRevisions,
+  fetchBackendStatus,
+  loadBackendConfig,
+  publishBackendLinks,
+  saveBackendConfig,
+  type BackendConfig,
+  type Revision,
+} from '../lib/backend'
 
 const SUN_STYLES = ['auto', 'classic', 'giant', 'flame', 'pulse', 'binary']
 const BODY_STYLES = ['auto', 'terran', 'gas', 'ice', 'lava', 'ringed', 'rock']
@@ -44,6 +54,13 @@ export function ConfigPage() {
   const [tab, setTab] = useState<'editor' | 'json'>('editor')
   const [jsonText, setJsonText] = useState('')
   const [notice, setNotice] = useState('')
+  const [backend, setBackend] = useState<BackendConfig>(() => loadBackendConfig())
+  const [backendOpen, setBackendOpen] = useState(false)
+  const [backendStatus, setBackendStatus] = useState<'idle' | 'checking' | 'ok' | 'error'>('idle')
+  const [backendMsg, setBackendMsg] = useState('')
+  const [backendDataset, setBackendDataset] = useState<GalaxyData | null>(null)
+  const [revisions, setRevisions] = useState<Revision[]>([])
+  const [publishing, setPublishing] = useState(false)
   const [openClusters, setOpenClusters] = useState<Set<string>>(
     () => new Set(loadGalaxyData().sectors.slice(0, 1).map((s) => s.id)),
   )
@@ -115,27 +132,67 @@ export function ConfigPage() {
   const draftRef = useRef(draft)
   draftRef.current = draft
 
-  const save = useCallback(() => {
+  const backendPatch = useCallback((patch: Partial<BackendConfig>) => {
+    setBackend((prev) => {
+      const next = { ...prev, ...patch }
+      saveBackendConfig(next)
+      return next
+    })
+  }, [])
+
+  const save = useCallback(async () => {
     const clean = normalizeGalaxy(draftRef.current)
     if (!clean) {
       setNotice('⚠️ Could not save — the dataset is invalid.')
       return
     }
-    setDraft(clean)
+    // backend configured → publish there; otherwise local-only boot
+    if (backend.base.trim() !== '') {
+      try {
+        await publishBackendLinks(clean, backend.author)
+      } catch (err) {
+        saveGalaxyData(clean) // local cache still updated
+        setNotice(
+          '⚠️ Backend publish failed (' +
+            (err instanceof Error ? err.message : 'error') +
+            ') — saved locally only.',
+        )
+        return
+      }
+    }
     saveGalaxyData(clean)
     window.location.href = '/'
-  }, [])
+  }, [backend])
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault()
-        if (dirty) save()
+        save()
       }
     }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
-  }, [dirty, save])
+  }, [save])
+
+  // pull the published dataset into the editor once at boot (when configured)
+  useEffect(() => {
+    if (!backendConfigured()) return
+    let cancelled = false
+    fetchBackendStatus()
+      .then((status) => {
+        if (cancelled || !status.data) return
+        const clean = normalizeGalaxy(status.data)
+        if (!clean) return
+        setDraft(clean)
+        setBackendDataset(clean)
+        setNotice('Loaded the published dataset from the backend.')
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const resetDefaults = () => {
     if (!window.confirm('Reset ALL links to the built-in defaults? Your saved changes will be erased.'))
@@ -265,6 +322,57 @@ export function ConfigPage() {
     })
   }
 
+  const testBackend = async () => {
+    saveBackendConfig(backend)
+    setBackendStatus('checking')
+    setBackendMsg('')
+    try {
+      const status = await fetchBackendStatus()
+      setBackendStatus('ok')
+      const clusters = status.data ? normalizeGalaxy(status.data)?.sectors.length ?? 0 : 0
+      setBackendMsg(
+        status.data
+          ? `✓ Connected — ${clusters} clusters · last updated by ${status.updated_by ?? '—'}`
+          : '✓ Connected — the backend has no dataset yet.',
+      )
+      setBackendDataset(status.data ? normalizeGalaxy(status.data) : null)
+      try {
+        setRevisions(await fetchBackendRevisions())
+      } catch {
+        setRevisions([])
+      }
+    } catch (err) {
+      setBackendStatus('error')
+      setBackendMsg('⚠️ ' + (err instanceof Error ? err.message : 'connection failed'))
+    }
+  }
+
+  const loadBackendDraft = () => {
+    if (!backendDataset) return
+    setDraft(backendDataset)
+    setDirty(true)
+    setNotice('Backend dataset loaded into the editor.')
+  }
+
+  const publishNow = async () => {
+    const clean = normalizeGalaxy(draftRef.current)
+    if (!clean) {
+      setNotice('⚠️ Dataset invalid — nothing to publish.')
+      return
+    }
+    setPublishing(true)
+    try {
+      await publishBackendLinks(clean, backend.author)
+      saveGalaxyData(clean)
+      setBackendStatus('ok')
+      setNotice('✓ Published to the backend — live for everyone.')
+    } catch (err) {
+      setNotice('⚠️ Publish failed: ' + (err instanceof Error ? err.message : 'error'))
+    } finally {
+      setPublishing(false)
+    }
+  }
+
   const hueColor = (hue: number) => `hsl(${(((hue % 360) + 360) % 360)} 65% 60%)`
 
   return (
@@ -300,6 +408,95 @@ export function ConfigPage() {
             JSON
           </button>
         </div>
+
+        <section className="config-backend">
+          <button
+            className="config-backend-head"
+            onClick={() => setBackendOpen(!backendOpen)}
+            aria-expanded={backendOpen}
+          >
+            <span className="config-backend-dot" data-state={backendStatus} />
+            <span className="config-backend-title">Backend sync</span>
+            <span className="config-backend-sub">
+              {backend.base.trim() ? backend.base : 'not configured'}
+            </span>
+            <span className="icon-btn chevron" aria-hidden>⌄</span>
+          </button>
+          <Collapse open={backendOpen}>
+            <div className="config-backend-body">
+              <p className="config-hint">
+                Publishing pushes this dataset to a Postgres-backed API so every
+                device — and every visitor — sees the same galaxy. Needs{' '}
+                <code>DATABASE_URL</code> and <code>ADMIN_PASSWORD</code> set on
+                the server (see README).
+              </p>
+              <div className="config-fields">
+                <label className="field grow">
+                  <span>API base</span>
+                  <input
+                    inputMode="url"
+                    value={backend.base}
+                    placeholder="/api"
+                    onChange={(e) => backendPatch({ base: e.target.value })}
+                  />
+                </label>
+                <label className="field grow">
+                  <span>Admin password</span>
+                  <input
+                    type="password"
+                    value={backend.password}
+                    placeholder="ADMIN_PASSWORD"
+                    onChange={(e) => backendPatch({ password: e.target.value })}
+                  />
+                </label>
+                <label className="field grow">
+                  <span>Your name</span>
+                  <input
+                    value={backend.author}
+                    placeholder="who is editing?"
+                    onChange={(e) => backendPatch({ author: e.target.value })}
+                  />
+                </label>
+                <button
+                  className="btn ghost small"
+                  onClick={testBackend}
+                  disabled={backend.base.trim() === ''}
+                >
+                  Test connection
+                </button>
+              </div>
+              {backendMsg && (
+                <div className="config-backend-msg" data-state={backendStatus}>
+                  {backendMsg}
+                </div>
+              )}
+              {backendStatus === 'ok' && (
+                <div className="config-actions">
+                  {backendDataset && (
+                    <button className="btn ghost small" onClick={loadBackendDraft}>
+                      Load dataset into editor
+                    </button>
+                  )}
+                  <button className="btn primary small" onClick={publishNow} disabled={publishing}>
+                    {publishing ? 'Publishing…' : 'Publish to backend'}
+                  </button>
+                </div>
+              )}
+              {revisions.length > 0 && (
+                <div className="config-revisions">
+                  <div className="config-links-label">Recent changes</div>
+                  {revisions.slice(0, 5).map((r) => (
+                    <div key={r.id} className="config-rev">
+                      <span>#{r.id}</span>
+                      <span>{r.author ?? '—'}</span>
+                      <span>{new Date(r.created_at).toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Collapse>
+        </section>
       </header>
 
       {notice && <div className="config-toast">{notice}</div>}
@@ -617,8 +814,8 @@ export function ConfigPage() {
           <button className="btn ghost small danger-text" onClick={resetDefaults}>
             Reset to defaults
           </button>
-          <button className="btn primary" onClick={save} disabled={!dirty}>
-            Save &amp; launch
+          <button className="btn primary" onClick={save} disabled={!dirty || publishing}>
+            {publishing ? 'Saving…' : 'Save & launch'}
           </button>
         </div>
       </footer>

@@ -32,15 +32,18 @@
     "@react-three/fiber": "^9.3.0",
     "@react-three/postprocessing": "^3.0.4",
     "playwright-core": "^1.64.0",
+    "postgres": "^3.4.9",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "three": "^0.180.0",
     "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@types/node": "^26.6.4",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@types/three": "^0.180.0",
+    "@vercel/node": "^23.0.0",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.9.2",
     "vite": "^7.1.0"
