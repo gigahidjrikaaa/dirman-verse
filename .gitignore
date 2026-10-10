@@ -17,3 +17,6 @@ dist/
 npm-debug.log*
 .DS_Store
 Thumbs.db
+.neon
+.mimosa/
+.video_agent/
