@@ -49,6 +49,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       res.status(400).json({ error: 'invalid galaxy dataset' })
       return
     }
+
+    // optimistic concurrency: reject publishes that would silently overwrite
+    // someone else's change, unless the client explicitly forces
+    const headerIfMatch = req.headers['if-match']
+    const ifMatch = Array.isArray(headerIfMatch) ? headerIfMatch[0] : headerIfMatch
+    const force = req.headers['x-force'] === '1'
+    const existing = await sql`SELECT updated_by, updated_at
+                               FROM galaxy_state WHERE id = 1 LIMIT 1`
+    if (existing.length > 0 && !force) {
+      const currentAt = new Date(existing[0].updated_at).toISOString()
+      if (ifMatch && ifMatch !== currentAt) {
+        res.status(409).json({
+          error: 'conflict — the dataset was updated by someone else',
+          current: {
+            data: existing[0].data,
+            updated_by: existing[0].updated_by,
+            updated_at: currentAt,
+          },
+        })
+        return
+      }
+    }
+
     await sql`
       INSERT INTO galaxy_state (id, data, updated_by, updated_at)
       VALUES (1, ${JSON.stringify(clean)}::jsonb, ${author}, now())
@@ -59,7 +82,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       INSERT INTO galaxy_revisions (data, author)
       VALUES (${JSON.stringify(clean)}::jsonb, ${author})
     `
-    res.status(200).json({ ok: true, updated_by: author })
+    const saved = await sql`SELECT updated_by, updated_at
+                            FROM galaxy_state WHERE id = 1 LIMIT 1`
+    res.status(200).json({
+      ok: true,
+      updated_by: saved[0]?.updated_by ?? author,
+      updated_at: saved[0]?.updated_at ? new Date(saved[0].updated_at).toISOString() : null,
+    })
     return
   }
 

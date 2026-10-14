@@ -55,24 +55,49 @@ export async function fetchBackendStatus(signal?: AbortSignal): Promise<BackendS
   }
 }
 
-/** POST a dataset — requires the admin password */
-export async function publishBackendLinks(data: GalaxyData, author: string): Promise<void> {
+export class PublishConflictError extends Error {
+  current: { data: GalaxyData | null; updated_by: string | null; updated_at: string | null }
+  constructor(current: PublishConflictError['current']) {
+    super('conflict — the dataset was updated by someone else')
+    this.name = 'PublishConflictError'
+    this.current = current
+  }
+}
+
+/** POST a dataset — requires the admin password; 409 = someone published first */
+export async function publishBackendLinks(
+  data: GalaxyData,
+  author: string,
+  opts?: { ifMatch?: string; force?: boolean },
+): Promise<{ updated_by: string | null; updated_at: string | null }> {
   const { password } = loadBackendConfig()
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Admin-Password': password,
+  }
+  if (opts?.ifMatch) headers['If-Match'] = opts.ifMatch
+  if (opts?.force) headers['X-Force'] = '1'
+
   const res = await fetch(endpoint('/links'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Admin-Password': password },
+    headers,
     body: JSON.stringify({ data, author: author || 'anonymous' }),
   })
-  if (!res.ok) {
-    const j = await res.json().catch(() => ({}))
-    throw new Error(j?.error ?? `HTTP ${res.status}`)
+  const json = await res.json().catch(() => ({}))
+  if (res.status === 409) {
+    throw new PublishConflictError(json?.current ?? { data: null, updated_by: null, updated_at: null })
   }
+  if (!res.ok) {
+    throw new Error(json?.error ?? `HTTP ${res.status}`)
+  }
+  return { updated_by: json?.updated_by ?? null, updated_at: json?.updated_at ?? null }
 }
 
 export interface Revision {
   id: number
   author: string | null
   created_at: string
+  data: GalaxyData
 }
 
 /** GET the last 20 revisions (requires the admin password) */

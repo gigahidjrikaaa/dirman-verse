@@ -1155,6 +1155,8 @@ button {
   display: flex;
   flex-direction: column;
   padding-bottom: 0;
+  scroll-padding-top: 76px;
+  scroll-padding-bottom: 96px;
 }
 
 /* sticky top bar */
@@ -1300,6 +1302,7 @@ button {
   background: rgba(255, 236, 200, 0.02);
   transition: border-color 0.25s, background 0.25s;
   scroll-margin-top: 76px;
+  scroll-margin-bottom: 96px;
 }
 .config-card.open,
 .config-system.open {

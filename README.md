@@ -84,13 +84,12 @@ Open **`#/config`** (or ⚙ Flight settings → Link manager) to add, edit,
 reorder and delete clusters, systems and links through forms — including each
 star's archetype (`style`) and hue shift (`tint`).
 
-- **Without a backend** (default): saving stores the dataset in the current
-  browser's localStorage. Great for a single device; **Reset to defaults**
-  restores the built-in dataset.
-- **With a backend** (below): *Save & launch* publishes to the database, so
-  every device and every visitor sees the same galaxy. To pull the published
-  dataset into the editor on another device, just open `#/config` there — it
-  loads automatically.
+The editor keeps your work safe: **autosave** (drafts persist locally every
+~1s), **undo/redo** (Ctrl+Z / Ctrl+Y, with undo toasts on deletes), **inline
+validation**, and a **review step** before saving that shows exactly what will
+change. Publishing checks for **conflicts** — if someone else published while
+you were editing, you choose whose version wins. Recent changes are listed in
+the Backend sync panel and can be restored with one click.
 
 ## Backend (multi-device editing)
 

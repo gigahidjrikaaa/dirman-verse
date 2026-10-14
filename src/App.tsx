@@ -33,8 +33,18 @@ function webglAvailable(): boolean {
 }
 
 export default function App() {
-  // #/config is the standalone link manager — no canvas, no scene hooks
-  const [route] = useState(() => window.location.hash)
+  // reactive hash route: #/config = link manager, anything else = the galaxy
+  const [route, setRoute] = useState(() => window.location.hash)
+  useEffect(() => {
+    const h = () => setRoute(window.location.hash)
+    window.addEventListener('hashchange', h)
+    window.addEventListener('popstate', h)
+    return () => {
+      window.removeEventListener('hashchange', h)
+      window.removeEventListener('popstate', h)
+    }
+  }, [])
+
   if (route === '#/config') {
     return (
       <Suspense fallback={null}>
@@ -42,7 +52,10 @@ export default function App() {
       </Suspense>
     )
   }
+  return <GalaxyApp />
+}
 
+function GalaxyApp() {
   const [webgl] = useState(webglAvailable)
   const preloaderDone = useGalaxy((s) => s.preloaderDone)
   const audioOn = useGalaxy((s) => s.settings.audio)

@@ -70,7 +70,6 @@ export function SettingsDrawer() {
             className="btn ghost small"
             onClick={() => {
               window.location.hash = '#/config'
-              window.location.reload()
             }}
           >
             Open ↗

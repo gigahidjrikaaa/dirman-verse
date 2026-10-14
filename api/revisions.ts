@@ -24,9 +24,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     await ensureSchema()
-    const rows = await db()`SELECT id, author, created_at
+    const rows = await db()`SELECT id, data, author, created_at
                             FROM galaxy_revisions
-                            ORDER BY id DESC LIMIT 20`
+                            ORDER BY id DESC LIMIT 10`
     res.status(200).json({ revisions: rows })
   } catch (err) {
     res.status(500).json({ error: 'database unavailable', detail: String(err) })

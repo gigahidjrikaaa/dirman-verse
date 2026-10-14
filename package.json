@@ -25,7 +25,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@neon/config": "^1.8.6",
@@ -48,6 +50,7 @@
     "@vercel/node": "^23.0.0",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.9.2",
-    "vite": "^7.1.0"
+    "vite": "^7.1.0",
+    "vitest": "^5.0.4"
   }
 }
