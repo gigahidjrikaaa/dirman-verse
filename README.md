@@ -88,37 +88,38 @@ The editor keeps your work safe: **autosave** (drafts persist locally every
 ~1s), **undo/redo** (Ctrl+Z / Ctrl+Y, with undo toasts on deletes), **inline
 validation**, and a **review step** before saving that shows exactly what will
 change. Publishing checks for **conflicts** — if someone else published while
-you were editing, you choose whose version wins. Recent changes are listed in
-the Backend sync panel and can be restored with one click.
+you were editing, you choose whose version wins.
 
-## Backend (multi-device editing)
+## Backend & login (Dirman Dex)
 
-The optional backend is two serverless functions plus any Postgres database
-(free tiers of [Neon](https://neon.tech) or [Supabase](https://supabase.com)
-both work):
+The site shares its backend and accounts with **Dirman Dex** (the batch's
+member directory — FastAPI on Render, Postgres via Neon):
 
 ```
-api/links.ts       GET  /api/links   → published dataset (public)
-                   POST /api/links   → publish (needs X-Admin-Password)
-api/revisions.ts   GET  /api/revisions → last 20 changes (auth)
-api/_db.ts         connection + lazy schema bootstrap
+POST /api/auth/login      → JWT (same credentials as the Dex app)
+GET  /api/auth/session    → validates/slides the stored token
+GET  /api/config/galaxy   → published dataset (public)
+PUT  /api/config/galaxy   → publish (admin role required)
 ```
 
-Setup on Vercel (or any Node host):
+After the loading screen every visitor gets a **login page**; signing in uses
+the same email/password as Dirman Dex. The galaxy then boots from the
+published dataset (falling back to localStorage and built-in defaults when
+the server is unreachable).
 
-1. Create a Postgres database and copy its connection string.
-2. Set environment variables on your host:
-   - `DATABASE_URL` — the Postgres connection string (`?sslmode=require`)
-   - `ADMIN_PASSWORD` — the shared editor password for the link manager
-3. Deploy. The schema self-creates on the first API call.
-4. In `#/config` → **Backend sync**: set the API base (`/api` when the site
-   and API share a domain), the admin password and your name → *Test
-   connection* → *Publish to backend*.
+Setup:
 
-Writes require `ADMIN_PASSWORD`; reads are public (the data is the site
-content). Every publish is recorded in a revisions table, so the change
-history is queryable. Without a configured backend the site behaves exactly
-as before — localStorage and built-in defaults.
+1. The API lives in the Sudirman-Dex repo (`backend/app/routers/config.py`);
+   deploy it with `DATABASE_URL` and `JWT_SECRET` set.
+2. Point this site at it with one build-time env var:
+   - `VITE_GALAXY_API_BASE` — e.g. `https://dirman-dex-api.onrender.com`
+3. On the API, add this site's origin to `CORS_ORIGINS`.
+4. Deploy `dist/` to any static host.
+
+Publishing (in **`#/config`**) requires the `admin` role and uses optimistic
+concurrency: if someone published while you were editing, you get a conflict
+modal and choose whose version wins. Without a reachable backend the editor
+still works — changes save locally and can be published later.
 
 ## Adding your links in code
 

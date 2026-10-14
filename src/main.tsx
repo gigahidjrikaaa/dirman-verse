@@ -4,7 +4,7 @@ import App from './App'
 import { useGalaxy } from './state/useGalaxy'
 import { setGalaxyData } from './data/links'
 import { normalizeGalaxy } from './data/galaxyData'
-import { backendConfigured, fetchBackendStatus } from './lib/backend'
+import { fetchGalaxy } from './lib/backend'
 import { galaxyClock } from './three/runtime'
 import './index.css'
 
@@ -15,24 +15,20 @@ if (import.meta.env.DEV) {
 }
 
 /**
- * Boot chain: if a backend is configured, the published dataset is fetched
- * first (≤2.5s) so the galaxy renders with it; otherwise we boot straight
- * from localStorage/defaults. The static #boot splash covers the wait.
+ * Boot chain: fetch the published dataset from the configured backend
+ * (≤2.5s) so the galaxy renders with it; fall back to localStorage and
+ * built-in defaults when unreachable. The static #boot splash covers
+ * the wait.
  */
 async function boot() {
-  if (backendConfigured()) {
-    try {
-      const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), 2500)
-      const status = await fetchBackendStatus(ctrl.signal)
-      clearTimeout(timer)
-      if (status.data) {
-        const clean = normalizeGalaxy(status.data)
-        if (clean) setGalaxyData(clean)
-      }
-    } catch {
-      // backend unreachable — fall back to localStorage/defaults
+  try {
+    const data = await fetchGalaxy()
+    if (data) {
+      const clean = normalizeGalaxy(data)
+      if (clean) setGalaxyData(clean)
     }
+  } catch {
+    // backend unreachable — fall back to localStorage/defaults
   }
 
   createRoot(document.getElementById('root')!).render(

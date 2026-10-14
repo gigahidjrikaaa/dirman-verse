@@ -15,26 +15,21 @@ import {
   resetGalaxyData,
   saveGalaxyData,
   slugify,
-  withUrlScheme,
   type BodyDef,
   type GalaxyData,
-  type SectorDef,
   type SystemDef,
 } from '../data/galaxyData'
 import { setGalaxyData } from '../data/links'
-import { loadDraft, saveDraft, clearDraft } from '../data/draft'
+import { clearDraft, loadDraft, saveDraft } from '../data/draft'
 import { issuesForPrefix, validateGalaxy } from '../data/validate'
-import { diffGalaxy, diffIsEmpty, diffSummary, type GalaxyDiff } from '../data/diff'
+import { diffGalaxy, diffSummary, type GalaxyDiff } from '../data/diff'
 import {
-  backendConfigured,
-  fetchBackendRevisions,
-  fetchBackendStatus,
-  loadBackendConfig,
+  fetchGalaxy,
+  loadAuth,
+  logoutRequest,
   PublishConflictError,
-  publishBackendLinks,
-  saveBackendConfig,
-  type BackendConfig,
-  type Revision,
+  publishGalaxy,
+  type AuthState,
 } from '../lib/backend'
 import { useGalaxy } from '../state/useGalaxy'
 
@@ -56,15 +51,74 @@ function Collapse({ open, children }: { open: boolean; children: ReactNode }) {
   )
 }
 
+/** the change list inside the review modal */
+function DiffList({ diff }: { diff: GalaxyDiff }) {
+  const groups: { label: string; cls: string; lines: string[] }[] = [
+    {
+      label: 'Added clusters',
+      cls: 'add',
+      lines: diff.addedClusters.map((c) => c.name),
+    },
+    {
+      label: 'Removed clusters',
+      cls: 'del',
+      lines: diff.removedClusters.map((c) => c.name),
+    },
+    {
+      label: 'Added systems',
+      cls: 'add',
+      lines: diff.addedSystems.map((s) => `${s.system} — ${s.cluster}`),
+    },
+    {
+      label: 'Removed systems',
+      cls: 'del',
+      lines: diff.removedSystems.map((s) => `${s.system} — ${s.cluster}`),
+    },
+    {
+      label: 'Added links',
+      cls: 'add',
+      lines: diff.addedLinks.map((l) => `${l.name} → ${l.to?.url ?? ''} (${l.system})`),
+    },
+    {
+      label: 'Removed links',
+      cls: 'del',
+      lines: diff.removedLinks.map((l) => `${l.name} (${l.system})`),
+    },
+    {
+      label: 'Edited links',
+      cls: 'chg',
+      lines: diff.changedLinks.map(
+        (l) => `${l.system}: ${l.from?.name ?? ''} → ${l.to?.name ?? ''} · ${l.to?.url ?? ''}`,
+      ),
+    },
+  ].filter((g) => g.lines.length > 0)
+
+  return (
+    <div className="diff-list">
+      {groups.length === 0 && <div className="diff-none">No changes.</div>}
+      {groups.map((g) => (
+        <div key={g.label} className={`diff-group ${g.cls}`}>
+          <div className="diff-group-label">{g.label}</div>
+          {g.lines.map((line, i) => (
+            <div key={i} className="diff-line">
+              {line}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 /**
  * #/config — the in-app link manager.
  *
  * Draft model: edits live in memory + an autosaved localStorage draft
  * (dirman-galaxy-draft). Publishing is explicit: review the diff, then
- * push to the backend (or save locally) — separated so drafts never
+ * push to the Dirman Dex server (admin) — separated so drafts never
  * change the live galaxy sight-unseen.
  */
-export function ConfigPage() {
+export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
   // ----- draft + history -----
   const recovered = useMemo(() => loadDraft(), [])
   const recoveredRef = useRef(recovered)
@@ -82,6 +136,7 @@ export function ConfigPage() {
   // ----- ui state -----
   const [tab, setTab] = useState<'editor' | 'json'>('editor')
   const [jsonText, setJsonText] = useState('')
+  const jsonRef = useRef<HTMLTextAreaElement | null>(null)
   const [query, setQuery] = useState('')
   const [toast, setToastState] = useState<{
     msg: string
@@ -102,19 +157,16 @@ export function ConfigPage() {
     theirs: GalaxyData | null
   }>(null)
 
-  // ----- backend state -----
-  const [backend, setBackend] = useState<BackendConfig>(() => loadBackendConfig())
-  const backendRef = useRef(backend)
-  backendRef.current = backend
+  // ----- backend + session state -----
+  const [auth] = useState<AuthState | null>(() => loadAuth())
   const [backendOpen, setBackendOpen] = useState(false)
   const [backendStatus, setBackendStatus] = useState<'idle' | 'checking' | 'ok' | 'error'>('idle')
   const [backendMsg, setBackendMsg] = useState('')
   const [backendDataset, setBackendDataset] = useState<GalaxyData | null>(null)
-  const [revisions, setRevisions] = useState<Revision[]>([])
+  /** updated_at stamp of the server dataset this draft is based on (If-Match) */
   const [publishedAt, setPublishedAt] = useState<string | null>(null)
-  /** null = not probed yet; false = this origin has no /api server */
+  /** null = not probed yet; false = server unreachable */
   const [serverDetected, setServerDetected] = useState<boolean | null>(null)
-  const [showAdvanced, setShowAdvanced] = useState(false)
 
   const showToast = useCallback(
     (msg: string, action?: { label: string; run: () => void }) => {
@@ -231,272 +283,207 @@ export function ConfigPage() {
     return () => window.removeEventListener('beforeunload', h)
   }, [dirty])
 
-  // ----- backend -----
-  const backendPatch = useCallback((patch: Partial<BackendConfig>) => {
-    setBackend((prev) => {
-      const next = { ...prev, ...patch }
-      saveBackendConfig(next)
-      return next
-    })
-  }, [])
-
-  // probe the server once on mount: detects /api and auto-loads the
-  // published dataset into the editor (skipped when a local draft won)
+  // probe the server once on mount: loads the published dataset into the
+  // editor (unless an unsaved local draft won) and records its updated_at
+  // so publishing can use If-Match optimistic concurrency
   useEffect(() => {
-    if (!backendConfigured()) return
-    if (recoveredRef.current) return
     let cancelled = false
     setBackendStatus('checking')
-    fetchBackendStatus()
-      .then((status) => {
+    fetchGalaxy()
+      .then((data) => {
         if (cancelled) return
         setServerDetected(true)
-        if (!status.data) {
+        if (!data) {
           setBackendStatus('ok')
-          setBackendMsg('Server detected — nothing published yet.')
+          setBackendMsg('Server reachable — nothing published yet.')
           return
         }
-        const clean = normalizeGalaxy(status.data)
-        if (!clean) return
-        replaceDraftState(clean, false)
-        setPublishedAt(status.updated_at)
+        const clean = normalizeGalaxy(data)
         setBackendDataset(clean)
+        setPublishedAt(
+          (data as GalaxyData & { updated_at?: string }).updated_at ?? null,
+        )
+        if (!clean) {
+          setBackendStatus('error')
+          setBackendMsg('Server dataset is unreadable — publishing will replace it.')
+          return
+        }
+        if (!recoveredRef.current) {
+          replaceDraftState(clean, false)
+          showToast('Loaded the published dataset from the server.')
+        }
         setBackendStatus('ok')
-        showToast('Loaded the published dataset from the server.')
+        setBackendMsg('Server reachable — publishing goes live for everyone.')
       })
       .catch(() => {
         if (cancelled) return
         setServerDetected(false)
         setBackendStatus('error')
-        setBackendMsg('No server detected on this origin — saving locally only.')
+        setBackendMsg('Cannot reach the server — saving locally only.')
       })
     return () => {
       cancelled = true
     }
-  }, [replaceDraftState])
+  }, [replaceDraftState, showToast])
 
-  // ----- save / publish flow -----
-  const exitToGalaxy = (published: GalaxyData, msg: string) => {
-    setGalaxyData(published) // live rebuild, no reload
-    clearDraft()
-    useGalaxy.getState().setToast(msg)
-    history.pushState(null, '', window.location.pathname)
-    window.dispatchEvent(new PopStateEvent('popstate'))
-  }
+  // ----- CRUD (each edit tagged so rapid typing coalesces in history) -----
+  const patchSector = (si: number, patch: Partial<{ name: string; hue: number }>, tag?: string) =>
+    update((d) => {
+      const s = d.sectors[si]
+      if (s) Object.assign(s, patch)
+    }, tag)
 
-  const requestReview = (target: 'backend' | 'local') => {
-    if (errorCount > 0) {
-      showToast(`⚠️ Fix ${errorCount} issue${errorCount === 1 ? '' : 's'} before saving`)
-      return
-    }
-    const before =
-      target === 'backend' && backendDataset ? backendDataset : loadGalaxyData()
-    const diff = diffGalaxy(before, draftRef.current)
-    setReview({ diff, target })
-  }
+  const patchSystem = (si: number, yi: number, patch: Partial<SystemDef>, tag?: string) =>
+    update((d) => {
+      const y = d.sectors[si]?.systems[yi]
+      if (y) Object.assign(y, patch)
+    }, tag)
 
-  const confirmSave = async (force = false) => {
-    const target = review?.target ?? 'local'
-    const clean = normalizeGalaxy(draftRef.current)
-    if (!clean) {
-      showToast('⚠️ Dataset invalid — nothing saved.')
-      return
-    }
-    setSaving(true)
-    try {
-      if (target === 'backend') {
-        const meta = await publishBackendLinks(clean, backend.author, {
-          ifMatch: publishedAt ?? undefined,
-          force,
-        })
-        saveGalaxyData(clean)
-        clearDraft()
-        setDirty(false)
-        setReview(null)
-        exitToGalaxy(
-          clean,
-          `✓ Published by ${meta.updated_by ?? 'you'} — live for everyone`,
-        )
-      } else {
-        saveGalaxyData(clean)
-        setGalaxyData(clean)
-        clearDraft()
-        setDirty(false)
-        setReview(null)
-        exitToGalaxy(clean, '✓ Saved — galaxy updated')
-      }
-    } catch (err) {
-      if (err instanceof PublishConflictError) {
-        setConflict({
-          by: err.current.updated_by ?? 'someone',
-          at: err.current.updated_at ?? '',
-          theirs: err.current.data ? normalizeGalaxy(err.current.data) : null,
-        })
-      } else {
-        showToast('⚠️ ' + (err instanceof Error ? err.message : 'Save failed'))
-      }
-      setSaving(false)
-    }
-  }
+  const patchBody = (
+    si: number,
+    yi: number,
+    bi: number,
+    patch: Partial<BodyDef>,
+    tag?: string,
+  ) =>
+    update((d) => {
+      const b = d.sectors[si]?.systems[yi]?.bodies[bi]
+      if (b) Object.assign(b, patch)
+    }, tag)
 
-  // ----- keyboard -----
-  const requestReviewRef = useRef<(target: 'backend' | 'local') => void>(undefined as never)
-  requestReviewRef.current = (target) => {
-    if (errorCount > 0) {
-      showToast(`⚠️ Fix ${errorCount} issue${errorCount === 1 ? '' : 's'} before saving`)
-      return
-    }
-    const before =
-      target === 'backend' && backendDataset ? backendDataset : loadGalaxyData()
-    const diff = diffGalaxy(before, draftRef.current)
-    setReview({ diff, target })
-  }
+  const toggleSet = (
+    setter: (fn: (prev: Set<string>) => Set<string>) => void,
+    id: string,
+  ) =>
+    setter((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
 
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      const k = e.key.toLowerCase()
-      if ((e.ctrlKey || e.metaKey) && k === 's') {
-        e.preventDefault()
-        requestReviewRef.current(backendRef.current.base.trim() !== '' ? 'backend' : 'local')
-        return
-      }
-      if ((e.ctrlKey || e.metaKey) && k === 'z' && !e.shiftKey) {
-        e.preventDefault()
-        undo()
-        return
-      }
-      if ((e.ctrlKey || e.metaKey) && (k === 'y' || (k === 'z' && e.shiftKey))) {
-        e.preventDefault()
-        redo()
-      }
-    }
-    window.addEventListener('keydown', h)
-    return () => window.removeEventListener('keydown', h)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [undo, redo])
+  const scrollToCluster = (id: string) =>
+    document.getElementById(`cluster-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
-  // ----- CRUD (undoable, no window.confirm) -----
-  const patchSector = (si: number, patch: Partial<SectorDef>, tag?: string) =>
-    update((d) => Object.assign(d.sectors[si], patch), tag ?? `s:${si}:${Date.now()}`)
+  const scrollToSystem = (id: string) =>
+    setTimeout(
+      () =>
+        document
+          .getElementById(`system-${id}`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+      60,
+    )
+
   const addSector = () =>
     update((d) => {
+      const id = newId('cluster')
       d.sectors.push({
-        id: newId('cluster'),
-        name: 'New Cluster',
-        hue: Math.floor(Math.random() * 360),
+        id,
+        name: `Cluster ${d.sectors.length + 1}`,
+        hue: (d.sectors.length * 40) % 360,
         systems: [],
       })
-    }, `add-sector:${Date.now()}`)
-  const removeSector = (si: number) =>
+      setOpenClusters((prev) => new Set(prev).add(id))
+      setTimeout(() => scrollToCluster(id), 60)
+    })
+
+  const removeSector = (si: number) => {
+    const removed = draftRef.current.sectors[si]
+    if (!removed) return
     update((d) => {
-      const name = d.sectors[si].name
       d.sectors.splice(si, 1)
-      showToast(`Deleted cluster "${name}"`, { label: 'Undo', run: () => undo() })
-    }, `del-s:${si}:${Date.now()}`)
+    })
+    showToast(`Deleted “${removed.name}”.`, {
+      label: 'Undo',
+      run: () =>
+        update((d) => {
+          d.sectors.splice(Math.min(si, d.sectors.length), 0, removed)
+        }, `restore:${removed.id}:${Date.now()}`),
+    })
+  }
+
   const moveSector = (si: number, dir: -1 | 1) =>
     update((d) => {
       const j = si + dir
-      if (j < 0 || j >= d.sectors.length) return
-      ;[d.sectors[si], d.sectors[j]] = [d.sectors[j], d.sectors[si]]
-    }, `mv-s:${si}:${dir}:${Date.now()}`)
+      const s = d.sectors
+      if (j < 0 || j >= s.length) return
+      ;[s[si], s[j]] = [s[j], s[si]]
+    })
 
-  const patchSystem = (si: number, yi: number, patch: Partial<SystemDef>, tag?: string) =>
-    update((d) => Object.assign(d.sectors[si].systems[yi], patch), tag ?? `y:${si}:${yi}:${Date.now()}`)
-  const addSystem = (si: number, sectorId: string) =>
+  const addSystem = (si: number) =>
     update((d) => {
-      const sys: SystemDef = { id: newId('system'), name: 'New System', importance: 2, bodies: [] }
-      d.sectors[si].systems.push(sys)
-      setOpenSystems((prev) => new Set(prev).add(sys.id))
-      setOpenClusters((prev) => new Set(prev).add(sectorId))
-    }, `add-y:${si}:${Date.now()}`)
-  const removeSystem = (si: number, yi: number) =>
+      const s = d.sectors[si]
+      if (!s) return
+      const id = newId('system')
+      s.systems.push({ id, name: 'New system', importance: 2, bodies: [] })
+      setOpenSystems((prev) => new Set(prev).add(id))
+      scrollToSystem(id)
+    })
+
+  const removeSystem = (si: number, yi: number) => {
+    const s = draftRef.current.sectors[si]
+    const removed = s?.systems[yi]
+    if (!s || !removed) return
     update((d) => {
-      const name = d.sectors[si].systems[yi].name
-      d.sectors[si].systems.splice(yi, 1)
-      showToast(`Deleted system "${name}"`, { label: 'Undo', run: () => undo() })
-    }, `del-y:${si}:${yi}:${Date.now()}`)
+      d.sectors[si]?.systems.splice(yi, 1)
+    })
+    showToast(`Deleted “${removed.name}”.`, {
+      label: 'Undo',
+      run: () =>
+        update((d) => {
+          d.sectors[si]?.systems.splice(Math.min(yi, d.sectors[si]?.systems.length ?? 0), 0, removed)
+        }, `restore:${removed.id}:${Date.now()}`),
+    })
+  }
+
   const moveSystem = (si: number, yi: number, dir: -1 | 1) =>
     update((d) => {
-      const arr = d.sectors[si].systems
+      const sys = d.sectors[si]?.systems
+      if (!sys) return
       const j = yi + dir
-      if (j < 0 || j >= arr.length) return
-      ;[arr[yi], arr[j]] = [arr[j], arr[yi]]
-    }, `mv-y:${si}:${yi}:${dir}:${Date.now()}`)
+      if (j < 0 || j >= sys.length) return
+      ;[sys[yi], sys[j]] = [sys[j], sys[yi]]
+    })
 
-  const patchBody = (si: number, yi: number, bi: number, patch: Partial<BodyDef>, tag?: string) =>
-    update(
-      (d) => {
-        const b = d.sectors[si].systems[yi].bodies[bi]
-        if (patch.url !== undefined) patch.url = withUrlScheme(patch.url as string)
-        Object.assign(b, patch)
-      },
-      tag ?? `b:${si}:${yi}:${bi}:${Date.now()}`,
-    )
   const addBody = (si: number, yi: number) =>
     update((d) => {
-      d.sectors[si].systems[yi].bodies.push({
-        id: newId('link'),
-        name: 'New Link',
-        url: 'https://',
-        kind: 'planet',
-      })
-    }, `add-b:${si}:${yi}:${Date.now()}`)
-  const removeBody = (si: number, yi: number, bi: number) =>
+      const y = d.sectors[si]?.systems[yi]
+      if (!y) return
+      y.bodies.push({ id: newId('link'), name: 'New link', url: 'https://', kind: 'planet' })
+    })
+
+  const removeBody = (si: number, yi: number, bi: number) => {
+    const y = draftRef.current.sectors[si]?.systems[yi]
+    const removed = y?.bodies[bi]
+    if (!y || !removed) return
     update((d) => {
-      const name = d.sectors[si].systems[yi].bodies[bi].name
-      d.sectors[si].systems[yi].bodies.splice(bi, 1)
-      showToast(`Deleted link "${name}"`, { label: 'Undo', run: () => undo() })
-    }, `del-b:${si}:${yi}:${bi}:${Date.now()}`)
+      d.sectors[si]?.systems[yi]?.bodies.splice(bi, 1)
+    })
+    showToast(`Deleted link “${removed.name}”.`, {
+      label: 'Undo',
+      run: () =>
+        update((d) => {
+          const yy = d.sectors[si]?.systems[yi]
+          yy?.bodies.splice(Math.min(bi, yy?.bodies.length ?? 0), 0, removed)
+        }, `restore:${removed.id}:${Date.now()}`),
+    })
+  }
+
   const moveBody = (si: number, yi: number, bi: number, dir: -1 | 1) =>
     update((d) => {
-      const arr = d.sectors[si].systems[yi].bodies
+      const bodies = d.sectors[si]?.systems[yi]?.bodies
+      if (!bodies) return
       const j = bi + dir
-      if (j < 0 || j >= arr.length) return
-      ;[arr[bi], arr[j]] = [arr[j], arr[bi]]
-    }, `mv-b:${si}:${yi}:${bi}:${dir}:${Date.now()}`)
-
-  // ----- backend handlers -----
-  const testBackend = async () => {
-    saveBackendConfig(backend)
-    setBackendStatus('checking')
-    setBackendMsg('')
-    try {
-      const status = await fetchBackendStatus()
-      setServerDetected(true)
-      setPublishedAt(status.updated_at)
-      const clean = status.data ? normalizeGalaxy(status.data) : null
-      setBackendDataset(clean)
-      const clusters = clean?.sectors.length ?? 0
-      try {
-        setRevisions(await fetchBackendRevisions())
-        setBackendStatus('ok')
-        setBackendMsg(
-          status.data
-            ? `✓ Editor ready — ${clusters} clusters · last updated by ${status.updated_by ?? '—'}`
-            : '✓ Editor ready — no dataset published yet.',
-        )
-        if (backend.password) setBackendOpen(false)
-      } catch {
-        setBackendStatus('error')
-        setBackendMsg('⚠️ Server reachable, but that password was rejected.')
-        setRevisions([])
-      }
-    } catch (err) {
-      setServerDetected(false)
-      setBackendStatus('error')
-      setBackendMsg('⚠️ ' + (err instanceof Error ? err.message : 'no server detected'))
-    }
-  }
-
-  const loadBackendDatasetIntoEditor = () => {
-    if (!backendDataset) return
-    replaceDraftState(backendDataset, true)
-    showToast('Backend dataset loaded into the editor.')
-  }
-
-  const publishNow = () => requestReview(backend.base.trim() !== '' ? 'backend' : 'local')
+      if (j < 0 || j >= bodies.length) return
+      ;[bodies[bi], bodies[j]] = [bodies[j], bodies[bi]]
+    })
 
   // ----- JSON tab -----
+  useEffect(() => {
+    if (tab === 'json') setJsonText(exportGalaxyJson(draftRef.current))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab])
+
   const applyJson = () => {
     const parsed = parseGalaxyJson(jsonText)
     if (!parsed) {
@@ -550,63 +537,137 @@ export function ConfigPage() {
       `reset:${Date.now()}`,
     )
 
-  const jsonRef = useRef<HTMLTextAreaElement>(null)
-
-  function toggleSet(
-    setter: React.Dispatch<React.SetStateAction<Set<string>>>,
-    key: string,
-  ) {
-    setter((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
+  // ----- save / publish flow -----
+  const exitToGalaxy = (published: GalaxyData, msg: string) => {
+    setGalaxyData(published) // live rebuild, no reload
+    clearDraft()
+    useGalaxy.getState().setToast(msg)
+    history.pushState(null, '', window.location.pathname)
+    window.dispatchEvent(new PopStateEvent('popstate'))
   }
 
-  function scrollToCluster(id: string) {
-    document
-      .getElementById(`cluster-${id}`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
-
-  function DiffList({ diff }: { diff: GalaxyDiff }) {
-    if (diffIsEmpty(diff)) {
-      return <div className="config-empty">No changes — identical to what's live.</div>
+  const requestReview = (target: 'backend' | 'local') => {
+    if (errorCount > 0) {
+      showToast(`⚠️ Fix ${errorCount} issue${errorCount === 1 ? '' : 's'} before saving`)
+      return
     }
-    const groups: Array<{ label: string; cls: string; rows: string[] }> = []
-    if (diff.addedClusters.length)
-      groups.push({ label: 'New clusters', cls: 'add', rows: diff.addedClusters.map((c) => c.name) })
-    if (diff.removedClusters.length)
-      groups.push({ label: 'Removed clusters', cls: 'del', rows: diff.removedClusters.map((c) => c.name) })
-    if (diff.addedSystems.length)
-      groups.push({ label: 'New systems', cls: 'add', rows: diff.addedSystems.map((s) => `${s.system} (${s.cluster})`) })
-    if (diff.removedSystems.length)
-      groups.push({ label: 'Removed systems', cls: 'del', rows: diff.removedSystems.map((s) => `${s.system} (${s.cluster})`) })
-    if (diff.addedLinks.length)
-      groups.push({ label: 'New links', cls: 'add', rows: diff.addedLinks.map((l) => `${l.name} — ${l.system}`) })
-    if (diff.removedLinks.length)
-      groups.push({ label: 'Removed links', cls: 'del', rows: diff.removedLinks.map((l) => `${l.name} — ${l.system}`) })
-    if (diff.changedLinks.length)
-      groups.push({ label: 'Edited links', cls: 'mod', rows: diff.changedLinks.map((l) => l.name) })
+    const before =
+      target === 'backend' && backendDataset ? backendDataset : loadGalaxyData()
+    const diff = diffGalaxy(before, draftRef.current)
+    setReview({ diff, target })
+  }
+  const requestReviewRef = useRef(requestReview)
+  requestReviewRef.current = requestReview
 
-    return (
-      <div className="diff-list">
-        {groups.map((g) => (
-          <div key={g.label} className="diff-group">
-            <div className={`diff-group-label ${g.cls}`}>{g.label}</div>
-            {g.rows.map((r, i) => (
-              <div key={i} className="diff-row">{r}</div>
-            ))}
-          </div>
-        ))}
-      </div>
-    )
+  // Ctrl+Z / Ctrl+Y / Ctrl+S — always the latest requestReview via ref
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return
+      const k = e.key.toLowerCase()
+      if (k === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        undo()
+      } else if (k === 'y' || (k === 'z' && e.shiftKey)) {
+        e.preventDefault()
+        redo()
+      } else if (k === 's') {
+        e.preventDefault()
+        requestReviewRef.current(serverDetected === false ? 'local' : 'backend')
+      }
+    }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [undo, redo, serverDetected])
+
+  const confirmSave = async (force = false) => {
+    const target = review?.target ?? 'local'
+    const clean = normalizeGalaxy(draftRef.current)
+    if (!clean) {
+      showToast('⚠️ Dataset invalid — nothing saved.')
+      return
+    }
+    setSaving(true)
+    try {
+      if (target === 'backend') {
+        const meta = await publishGalaxy(clean, {
+          ifMatch: publishedAt,
+          force,
+          updatedBy: auth?.user.name || auth?.user.email || 'unknown',
+        })
+        saveGalaxyData(clean)
+        setPublishedAt(meta.updated_at)
+        setBackendDataset(clean)
+        setDirty(false)
+        setReview(null)
+        exitToGalaxy(
+          clean,
+          `✓ Published by ${meta.updated_by} — live for everyone`,
+        )
+      } else {
+        saveGalaxyData(clean)
+        setDirty(false)
+        setReview(null)
+        exitToGalaxy(clean, '✓ Saved — galaxy updated')
+      }
+    } catch (err) {
+      if (err instanceof PublishConflictError) {
+        setConflict({
+          by: err.current.updated_by ?? 'someone',
+          at: err.current.updated_at ?? '',
+          theirs: err.current.data ? normalizeGalaxy(err.current.data) : null,
+        })
+      } else if (err instanceof Error && err.message.includes('admin')) {
+        showToast('⚠️ Admin role required to publish. You are signed in, but not as an admin.')
+      } else {
+        showToast('⚠️ ' + (err instanceof Error ? err.message : 'Save failed'))
+      }
+      setSaving(false)
+    }
+  }
+
+  const probeBackend = () => {
+    setBackendStatus('checking')
+    setBackendMsg('')
+    fetchGalaxy()
+      .then((data) => {
+        setServerDetected(true)
+        if (!data) {
+          setBackendStatus('ok')
+          setBackendMsg('Server reachable — nothing published yet.')
+          return
+        }
+        const clean = normalizeGalaxy(data)
+        setBackendDataset(clean)
+        setPublishedAt((data as GalaxyData & { updated_at?: string }).updated_at ?? null)
+        setBackendStatus(clean ? 'ok' : 'error')
+        setBackendMsg(clean ? 'Server reachable.' : 'Server dataset is unreadable.')
+      })
+      .catch(() => {
+        setServerDetected(false)
+        setBackendStatus('error')
+        setBackendMsg('Cannot reach the server — saving locally only.')
+      })
+  }
+
+  const loadBackendDatasetIntoEditor = () => {
+    if (!backendDataset) return
+    replaceDraftState(backendDataset, true)
+    showToast('Server dataset loaded into the editor.')
+  }
+
+  const publishNow = () => requestReview('backend')
+
+  const signOut = async () => {
+    if (dirty && !window.confirm('Sign out? Unsaved changes stay as a local draft.')) return
+    await logoutRequest()
+    onSignOut?.()
   }
 
   const q = query.trim().toLowerCase()
   const searching = q !== ''
   const matchText = (t: string) => t.toLowerCase().includes(q)
+
+  const targetForFoot = serverDetected === false ? 'local' : 'backend'
 
   return (
     <div className="config-page">
@@ -642,87 +703,61 @@ export function ConfigPage() {
             {backendStatus === 'checking'
               ? 'checking…'
               : serverDetected === false
-                ? 'no server — saving locally only'
-                : backend.password
-                  ? `editor ready · ${backend.author || 'unnamed'}`
-                  : 'server detected — password needed'}
+                ? 'offline — saving locally only'
+                : auth
+                  ? `signed in as ${auth.user.name || auth.user.email}`
+                  : 'not signed in'}
           </span>
           <span className="icon-btn chevron" aria-hidden>⌄</span>
         </button>
         <Collapse open={backendOpen}>
           <div className="config-backend-body">
             <p className="config-hint">
-              {backend.password
-                ? 'Editor ready on this device — publishing is one click away.'
-                : 'Enter the editor password (the ADMIN_PASSWORD from the server setup) — one-time on this device.'}
+              Publishing pushes this dataset to the Dirman Dex server, so every
+              device — and every visitor — sees the same galaxy. An{' '}
+              <code>admin</code> role is required to publish.
             </p>
-            <div className="config-fields">
-              <label className="field grow">
-                <span>Admin password</span>
-                <input
-                  type="password"
-                  value={backend.password}
-                  placeholder="ADMIN_PASSWORD"
-                  onChange={(e) => backendPatch({ password: e.target.value })}
-                />
-              </label>
-              <label className="field grow">
-                <span>Your name</span>
-                <input
-                  value={backend.author}
-                  placeholder="who is editing?"
-                  onChange={(e) => backendPatch({ author: e.target.value })}
-                />
-              </label>
-              <button className="btn ghost small" onClick={testBackend}>
-                Validate password
-              </button>
-            </div>
-            {showAdvanced && (
-              <div className="config-fields">
-                <label className="field grow">
-                  <span>API base</span>
-                  <input
-                    inputMode="url"
-                    value={backend.base}
-                    placeholder="/api"
-                    onChange={(e) => backendPatch({ base: e.target.value })}
-                  />
-                </label>
+            {auth ? (
+              <div className="config-session">
+                <span className="config-session-user">
+                  Signed in as <strong>{auth.user.name || auth.user.email}</strong>
+                  <span className="config-session-role">{auth.user.role}</span>
+                </span>
+                <button className="btn ghost small" onClick={signOut}>
+                  Sign out
+                </button>
+              </div>
+            ) : (
+              <div className="config-backend-msg" data-state="error">
+                Not signed in — reload the page to log in.
               </div>
             )}
-            <button className="config-advanced-toggle" onClick={() => setShowAdvanced(!showAdvanced)}>
-              {showAdvanced ? 'Hide' : 'Show'} advanced (custom API origin)
-            </button>
             {backendMsg && (
               <div className="config-backend-msg" data-state={backendStatus}>
                 {backendMsg}
               </div>
             )}
-            {backendStatus === 'ok' && (
-              <div className="config-actions">
-                {backendDataset && (
-                  <button className="btn ghost small" onClick={loadBackendDatasetIntoEditor}>
-                    Load dataset into editor
-                  </button>
-                )}
-                <button className="btn primary small" onClick={publishNow} disabled={saving}>
-                  {saving ? 'Saving…' : 'Publish to backend'}
+            <div className="config-actions">
+              <button
+                className="btn ghost small"
+                onClick={probeBackend}
+                disabled={backendStatus === 'checking'}
+              >
+                {backendStatus === 'checking' ? 'Checking…' : 'Re-check server'}
+              </button>
+              {backendDataset && (
+                <button className="btn ghost small" onClick={loadBackendDatasetIntoEditor}>
+                  Load server dataset
                 </button>
-              </div>
-            )}
-            {revisions.length > 0 && (
-              <div className="config-revisions">
-                <div className="config-links-label">Recent changes</div>
-                {revisions.slice(0, 5).map((r) => (
-                  <div key={r.id} className="config-rev">
-                    <span>#{r.id}</span>
-                    <span>{r.author ?? '—'}</span>
-                    <span>{new Date(r.created_at).toLocaleString()}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+              )}
+              <button
+                className="btn primary small"
+                onClick={publishNow}
+                disabled={saving || backendStatus !== 'ok'}
+              >
+                {saving ? 'Saving…' : 'Publish to server'}
+              </button>
+            </div>
           </div>
         </Collapse>
       </section>
@@ -756,7 +791,8 @@ export function ConfigPage() {
           <div className="config-editor">
             <p className="config-hint">
               Clusters become spiral stretches along the march route — the first
-              one sits at the core of the galaxy. Autosaved locally as you type.
+              one sits at the core of the galaxy. Autosaved locally as you type;
+              publishing makes it live for everyone.
             </p>
 
             {searching && (
@@ -847,7 +883,7 @@ export function ConfigPage() {
                         const yi = sector.systems.indexOf(sys)
                         const sysOpen = searching || openSystems.has(sys.id)
                         return (
-                          <section key={sys.id} className={`config-system ${sysOpen ? 'open' : ''}`}>
+                          <section key={sys.id} id={`system-${sys.id}`} className={`config-system ${sysOpen ? 'open' : ''}`}>
                             <div className="config-system-head">
                               <button
                                 className="icon-btn chevron"
@@ -1050,7 +1086,7 @@ export function ConfigPage() {
                         )
                       })}
 
-                      <button className="btn ghost small dashed" onClick={() => addSystem(si, sector.id)}>
+                      <button className="btn ghost small dashed" onClick={() => addSystem(si)}>
                         + Add system
                       </button>
                     </div>
@@ -1112,7 +1148,7 @@ export function ConfigPage() {
           </button>
           <button
             className="btn primary"
-            onClick={() => requestReview(backend.base.trim() !== '' ? 'backend' : 'local')}
+            onClick={() => requestReview(targetForFoot)}
             disabled={saving}
           >
             {saving ? 'Saving…' : 'Save & launch'}

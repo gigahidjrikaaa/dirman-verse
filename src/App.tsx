@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { Scene } from './three/Scene'
 import { Hud } from './ui/Hud'
@@ -7,10 +7,18 @@ import { CommandPalette } from './ui/CommandPalette'
 import { SettingsDrawer } from './ui/SettingsDrawer'
 import { Preloader } from './ui/Preloader'
 import { FallbackList } from './ui/FallbackList'
+import { LoginPage } from './ui/LoginPage'
 import { useGalaxy } from './state/useGalaxy'
 import { useKeyboard, useDeepLink } from './hooks/useKeyboard'
 import { useAdaptiveQuality } from './hooks/useAdaptiveQuality'
 import { audio } from './audio/audio'
+import {
+  AuthError,
+  clearAuth,
+  fetchSession,
+  loadAuth,
+  type DexUser,
+} from './lib/backend'
 
 // the link manager is a standalone page — keep it out of the main bundle
 const ConfigPage = lazy(() =>
@@ -33,7 +41,63 @@ function webglAvailable(): boolean {
 }
 
 export default function App() {
-  // reactive hash route: #/config = link manager, anything else = the galaxy
+  // auth gate: checking (stored token being validated) → login | ready.
+  // Everything — galaxy and link manager — sits behind the Dex login.
+  const [authPhase, setAuthPhase] = useState<'checking' | 'login' | 'ready'>(() =>
+    loadAuth() ? 'checking' : 'login',
+  )
+  const [user, setUser] = useState<DexUser | null>(() => loadAuth()?.user ?? null)
+
+  useEffect(() => {
+    if (authPhase !== 'checking') return
+    let cancelled = false
+    fetchSession()
+      .then((s) => {
+        if (cancelled) return
+        setUser(s.user)
+        setAuthPhase('ready')
+      })
+      .catch((err) => {
+        if (cancelled) return
+        if (err instanceof AuthError) {
+          clearAuth()
+          setUser(null)
+          setAuthPhase('login')
+        } else {
+          // server unreachable — let a previously signed-in user through;
+          // publishing will surface a clear error later
+          setAuthPhase('ready')
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [authPhase])
+
+  const handleSignedIn = useCallback((u: DexUser) => {
+    setUser(u)
+    setAuthPhase('ready')
+  }, [])
+  const handleSignOut = useCallback(() => {
+    setUser(null)
+    setAuthPhase('login')
+  }, [])
+
+  if (authPhase !== 'ready') {
+    return <LoginPage onDone={handleSignedIn} checking={authPhase === 'checking'} />
+  }
+
+  return <RoutedApp user={user} onSignOut={handleSignOut} />
+}
+
+/** reactive hash route: #/config = link manager, anything else = the galaxy */
+function RoutedApp({
+  user,
+  onSignOut,
+}: {
+  user: DexUser | null
+  onSignOut: () => void
+}) {
   const [route, setRoute] = useState(() => window.location.hash)
   useEffect(() => {
     const h = () => setRoute(window.location.hash)
@@ -48,11 +112,11 @@ export default function App() {
   if (route === '#/config') {
     return (
       <Suspense fallback={null}>
-        <ConfigPage />
+        <ConfigPage onSignOut={onSignOut} />
       </Suspense>
     )
   }
-  return <GalaxyApp />
+  return <GalaxyApp key={user ? 'authed' : 'anon'} />
 }
 
 function GalaxyApp() {

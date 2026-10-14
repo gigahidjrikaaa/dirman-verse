@@ -1752,3 +1752,175 @@ button {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ============================================================
+   LOGIN GATE — full-screen Dex credential check after the boot
+   splash. Same visual language as the galaxy HUD.
+============================================================ */
+.login-page {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(120vmax 90vmax at 50% 130%, rgba(255, 206, 106, 0.10), transparent 55%),
+    radial-gradient(80vmax 60vmax at 80% -10%, rgba(120, 80, 255, 0.12), transparent 60%),
+    #050208;
+}
+
+.login-glow {
+  position: absolute;
+  width: 44vmin;
+  height: 44vmin;
+  border-radius: 50%;
+  top: calc(50% - 46vmin);
+  left: calc(50% - 22vmin);
+  background: radial-gradient(circle, rgba(255, 206, 106, 0.35), rgba(255, 206, 106, 0) 65%);
+  filter: blur(6px);
+  animation: login-breathe 5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes login-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.12); opacity: 1; }
+}
+
+.login-card {
+  position: relative;
+  width: min(380px, calc(100vw - 40px));
+  padding: 34px 30px 28px;
+  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: login-rise 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes login-rise {
+  from { opacity: 0; transform: translateY(18px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+.login-mark {
+  align-self: center;
+  font-size: 30px;
+  color: var(--gold);
+  text-shadow: 0 0 18px rgba(255, 206, 106, 0.8);
+}
+
+.login-title {
+  margin: 0;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 24px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.login-sub {
+  margin: -4px 0 6px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(240, 234, 216, 0.65);
+}
+
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.login-field span {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(240, 234, 216, 0.55);
+}
+
+.login-field input {
+  padding: 11px 13px;
+  border-radius: 10px;
+  border: 1px solid rgba(240, 234, 216, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.login-field input:focus {
+  border-color: rgba(255, 206, 106, 0.55);
+  box-shadow: 0 0 0 3px rgba(255, 206, 106, 0.12);
+}
+
+.login-field input:disabled {
+  opacity: 0.55;
+}
+
+.login-error {
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(210, 39, 48, 0.4);
+  background: rgba(210, 39, 48, 0.12);
+  color: #ffb3b8;
+  font-size: 13px;
+}
+
+.login-submit {
+  margin-top: 4px;
+  padding: 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.login-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* signed-in chip inside the config backend panel */
+.config-session {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(111, 227, 160, 0.25);
+  background: rgba(111, 227, 160, 0.06);
+  font-size: 13px;
+}
+
+.config-session-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: rgba(240, 234, 216, 0.85);
+}
+
+.config-session-user strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.config-session-role {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 99px;
+  border: 1px solid rgba(255, 206, 106, 0.4);
+  color: var(--gold);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
