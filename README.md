@@ -112,7 +112,7 @@ Setup:
 1. The API lives in the Sudirman-Dex repo (`backend/app/routers/config.py`);
    deploy it with `DATABASE_URL` and `JWT_SECRET` set.
 2. Point this site at it with one build-time env var:
-   - `VITE_GALAXY_API_BASE` — e.g. `https://dirman-dex-api.onrender.com`
+   - `VITE_GALAXY_API_BASE` — e.g. `https://dirman-dex.onrender.com`
 3. On the API, add this site's origin to `CORS_ORIGINS`.
 4. Deploy `dist/` to any static host.
 

@@ -45,7 +45,7 @@ export interface DexUser {
 const AUTH_KEY = 'dirman-auth'
 const LEGACY_CFG_KEY = 'dirman-backend'
 
-const DEFAULT_BASE = 'https://dirman-dex-api.onrender.com'
+const DEFAULT_BASE = 'https://dirman-dex.onrender.com'
 
 /**
  * API origin. A build-time env var (VITE_GALAXY_API_BASE) pins a
