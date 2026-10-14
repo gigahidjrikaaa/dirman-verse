@@ -15,12 +15,15 @@ export interface BackendConfig {
 
 const KEY = 'dirman-backend'
 
-const DEFAULTS: BackendConfig = { base: '', password: '', author: '' }
+const DEFAULTS: BackendConfig = { base: '/api', password: '', author: '' }
 
 export function loadBackendConfig(): BackendConfig {
   try {
     const raw = localStorage.getItem(KEY)
-    return raw ? { ...DEFAULTS, ...JSON.parse(raw) } : { ...DEFAULTS }
+    const cfg = raw ? { ...DEFAULTS, ...JSON.parse(raw) } : { ...DEFAULTS }
+    // same-origin deployments need no base — an empty stored value means /api
+    if (!cfg.base.trim()) cfg.base = DEFAULTS.base
+    return cfg
   } catch {
     return { ...DEFAULTS }
   }
@@ -64,6 +67,13 @@ export class PublishConflictError extends Error {
   }
 }
 
+export class BackendUnavailableError extends Error {
+  constructor(message = 'no server detected on this origin') {
+    super(message)
+    this.name = 'BackendUnavailableError'
+  }
+}
+
 /** POST a dataset — requires the admin password; 409 = someone published first */
 export async function publishBackendLinks(
   data: GalaxyData,
@@ -78,11 +88,17 @@ export async function publishBackendLinks(
   if (opts?.ifMatch) headers['If-Match'] = opts.ifMatch
   if (opts?.force) headers['X-Force'] = '1'
 
-  const res = await fetch(endpoint('/links'), {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ data, author: author || 'anonymous' }),
-  })
+  let res: Response
+  try {
+    res = await fetch(endpoint('/links'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ data, author: author || 'anonymous' }),
+    })
+  } catch {
+    throw new BackendUnavailableError()
+  }
+  if (res.status === 404 || res.status === 501) throw new BackendUnavailableError('no API on this origin')
   const json = await res.json().catch(() => ({}))
   if (res.status === 409) {
     throw new PublishConflictError(json?.current ?? { data: null, updated_by: null, updated_at: null })

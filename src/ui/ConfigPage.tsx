@@ -112,6 +112,9 @@ export function ConfigPage() {
   const [backendDataset, setBackendDataset] = useState<GalaxyData | null>(null)
   const [revisions, setRevisions] = useState<Revision[]>([])
   const [publishedAt, setPublishedAt] = useState<string | null>(null)
+  /** null = not probed yet; false = this origin has no /api server */
+  const [serverDetected, setServerDetected] = useState<boolean | null>(null)
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   const showToast = useCallback(
     (msg: string, action?: { label: string; run: () => void }) => {
@@ -237,24 +240,39 @@ export function ConfigPage() {
     })
   }, [])
 
-  // pull the published dataset into the editor once at boot (when a backend
-  // is configured AND there is no local draft to recover)
+  // probe the server once on mount: detects /api and auto-loads the
+  // published dataset into the editor (skipped when a local draft won)
   useEffect(() => {
     if (!backendConfigured()) return
     if (recoveredRef.current) return
     let cancelled = false
+    setBackendStatus('checking')
     fetchBackendStatus()
       .then((status) => {
-        if (cancelled || !status.data) return
+        if (cancelled) return
+        setServerDetected(true)
+        if (!status.data) {
+          setBackendStatus('ok')
+          setBackendMsg('Server detected — nothing published yet.')
+          return
+        }
         const clean = normalizeGalaxy(status.data)
         if (!clean) return
         replaceDraftState(clean, false)
         setPublishedAt(status.updated_at)
         setBackendDataset(clean)
-        showToast('Loaded the published dataset from the backend.')
+        setBackendStatus('ok')
+        showToast('Loaded the published dataset from the server.')
       })
-      .catch(() => {})
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      .catch(() => {
+        if (cancelled) return
+        setServerDetected(false)
+        setBackendStatus('error')
+        setBackendMsg('No server detected on this origin — saving locally only.')
+      })
+    return () => {
+      cancelled = true
+    }
   }, [replaceDraftState])
 
   // ----- save / publish flow -----
@@ -444,24 +462,29 @@ export function ConfigPage() {
     setBackendMsg('')
     try {
       const status = await fetchBackendStatus()
-      setBackendStatus('ok')
+      setServerDetected(true)
       setPublishedAt(status.updated_at)
       const clean = status.data ? normalizeGalaxy(status.data) : null
       setBackendDataset(clean)
       const clusters = clean?.sectors.length ?? 0
-      setBackendMsg(
-        status.data
-          ? `✓ Connected — ${clusters} clusters · last updated by ${status.updated_by ?? '—'}`
-          : '✓ Connected — the backend has no dataset yet.',
-      )
       try {
         setRevisions(await fetchBackendRevisions())
+        setBackendStatus('ok')
+        setBackendMsg(
+          status.data
+            ? `✓ Editor ready — ${clusters} clusters · last updated by ${status.updated_by ?? '—'}`
+            : '✓ Editor ready — no dataset published yet.',
+        )
+        if (backend.password) setBackendOpen(false)
       } catch {
+        setBackendStatus('error')
+        setBackendMsg('⚠️ Server reachable, but that password was rejected.')
         setRevisions([])
       }
     } catch (err) {
+      setServerDetected(false)
       setBackendStatus('error')
-      setBackendMsg('⚠️ ' + (err instanceof Error ? err.message : 'connection failed'))
+      setBackendMsg('⚠️ ' + (err instanceof Error ? err.message : 'no server detected'))
     }
   }
 
@@ -616,28 +639,24 @@ export function ConfigPage() {
           <span className="config-backend-dot" data-state={backendStatus} />
           <span className="config-backend-title">Backend sync</span>
           <span className="config-backend-sub">
-            {backend.base.trim() ? backend.base : 'not configured'}
+            {backendStatus === 'checking'
+              ? 'checking…'
+              : serverDetected === false
+                ? 'no server — saving locally only'
+                : backend.password
+                  ? `editor ready · ${backend.author || 'unnamed'}`
+                  : 'server detected — password needed'}
           </span>
           <span className="icon-btn chevron" aria-hidden>⌄</span>
         </button>
         <Collapse open={backendOpen}>
           <div className="config-backend-body">
             <p className="config-hint">
-              Publishing pushes this dataset to a Postgres-backed API so every
-              device — and every visitor — sees the same galaxy. Needs{' '}
-              <code>DATABASE_URL</code> and <code>ADMIN_PASSWORD</code> set on
-              the server (see README).
+              {backend.password
+                ? 'Editor ready on this device — publishing is one click away.'
+                : 'Enter the editor password (the ADMIN_PASSWORD from the server setup) — one-time on this device.'}
             </p>
             <div className="config-fields">
-              <label className="field grow">
-                <span>API base</span>
-                <input
-                  inputMode="url"
-                  value={backend.base}
-                  placeholder="/api"
-                  onChange={(e) => backendPatch({ base: e.target.value })}
-                />
-              </label>
               <label className="field grow">
                 <span>Admin password</span>
                 <input
@@ -655,14 +674,26 @@ export function ConfigPage() {
                   onChange={(e) => backendPatch({ author: e.target.value })}
                 />
               </label>
-              <button
-                className="btn ghost small"
-                onClick={testBackend}
-                disabled={backend.base.trim() === ''}
-              >
-                Test connection
+              <button className="btn ghost small" onClick={testBackend}>
+                Validate password
               </button>
             </div>
+            {showAdvanced && (
+              <div className="config-fields">
+                <label className="field grow">
+                  <span>API base</span>
+                  <input
+                    inputMode="url"
+                    value={backend.base}
+                    placeholder="/api"
+                    onChange={(e) => backendPatch({ base: e.target.value })}
+                  />
+                </label>
+              </div>
+            )}
+            <button className="config-advanced-toggle" onClick={() => setShowAdvanced(!showAdvanced)}>
+              {showAdvanced ? 'Hide' : 'Show'} advanced (custom API origin)
+            </button>
             {backendMsg && (
               <div className="config-backend-msg" data-state={backendStatus}>
                 {backendMsg}
