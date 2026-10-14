@@ -47,11 +47,14 @@ const LEGACY_CFG_KEY = 'dirman-backend'
 
 const DEFAULT_BASE = 'https://dirman-dex.onrender.com'
 
+/** stored overrides that must never win: the old same-origin proxy and the
+ * pre-launch Render hostname (a different service that 404s our routes) */
+const LEGACY_BASES = new Set(['/api', 'https://dirman-dex-api.onrender.com'])
+
 /**
  * API origin. A build-time env var (VITE_GALAXY_API_BASE) pins a
  * deployment; otherwise a localStorage override (tests, power users)
- * wins; the legacy relative '/api' value from the old backend era is
- * ignored; default is the public Dex API on Render.
+ * wins — unless it's a known-legacy value; default is the live Dex API.
  */
 export function apiBase(): string {
   const envBase = (import.meta.env.VITE_GALAXY_API_BASE as string | undefined)?.trim()
@@ -63,7 +66,8 @@ export function apiBase(): string {
   } catch {
     // corrupt override — ignore it
   }
-  return (stored && stored !== '/api' ? stored : DEFAULT_BASE).replace(/\/+$/, '')
+  const clean = stored.replace(/\/+$/, '')
+  return !clean || LEGACY_BASES.has(clean) ? DEFAULT_BASE : clean
 }
 
 export interface AuthState {
