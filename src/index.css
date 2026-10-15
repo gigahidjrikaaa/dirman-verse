@@ -1055,27 +1055,68 @@ button {
   animation: pulse 1.4s ease-in-out infinite;
 }
 
-/* ---------------- backend panel ---------------- */
+/* ---------------- backend sync (header chip + popover) ---------------- */
 
-.config-backend {
-  border: 1px solid var(--line-soft);
-  border-radius: 12px;
-  background: rgba(255, 236, 200, 0.02);
+.config-sync-wrap {
+  position: relative;
+  flex: none;
 }
 
-.config-backend-head {
-  display: flex;
+.config-sync-chip {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 11px 14px;
-  background: none;
-  border: none;
-  color: var(--ink);
+  gap: 8px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--line-soft);
+  background: rgba(255, 236, 200, 0.02);
+  color: var(--dim);
   font-family: inherit;
-  font-size: 0.8rem;
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
   cursor: pointer;
-  text-align: left;
+  transition: color 0.2s, border-color 0.2s;
+}
+.config-sync-chip:hover,
+.config-sync-chip.on {
+  color: var(--ink);
+  border-color: var(--line);
+}
+.config-sync-chip .sync-label {
+  white-space: nowrap;
+}
+
+.config-sync-pop {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 60;
+  width: min(380px, calc(100vw - 28px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: var(--glass-strong);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  backdrop-filter: blur(18px) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25);
+  box-shadow: 0 24px 70px rgba(0, 0, 8, 0.6);
+  animation: popIn 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.1) both;
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+}
+
+.config-pop-title {
+  font-size: 0.62rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--faint);
 }
 
 .config-backend-dot {
@@ -1087,31 +1128,8 @@ button {
 }
 .config-backend-dot[data-state='checking'] { background: var(--gold); animation: pulse 1s infinite; }
 .config-backend-dot[data-state='ok'] { background: #6fe3a0; box-shadow: 0 0 8px #6fe3a0; }
+.config-backend-dot[data-state='warn'] { background: var(--gold); box-shadow: 0 0 8px rgba(255, 206, 106, 0.7); }
 .config-backend-dot[data-state='error'] { background: var(--red); box-shadow: 0 0 8px var(--red); }
-
-.config-backend-title {
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-
-.config-backend-sub {
-  margin-left: auto;
-  font-size: 0.68rem;
-  color: var(--faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 45%;
-}
-
-.config-backend-body {
-  padding: 2px 14px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  border-top: 1px solid var(--line-soft);
-  padding-top: 12px;
-}
 
 .config-backend-msg {
   font-size: 0.8rem;
@@ -1128,22 +1146,6 @@ button {
   gap: 10px;
   flex-wrap: wrap;
 }
-
-.config-revisions {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.config-rev {
-  display: flex;
-  gap: 14px;
-  font-size: 0.7rem;
-  color: var(--faint);
-  font-family: ui-monospace, Consolas, monospace;
-  padding: 3px 6px;
-  border-radius: 6px;
-}
-.config-rev:hover { background: rgba(232, 184, 75, 0.05); }
 
 /* ---------------- config page (#/config) ---------------- */
 
@@ -1249,9 +1251,10 @@ button {
 
 /* cluster quick-nav pills */
 .cluster-nav {
+  flex: none; /* keep the scroll container from being flex-crushed flat */
   display: flex;
   gap: 8px;
-  padding: 14px clamp(14px, 3vw, 28px) 4px;
+  padding: 12px clamp(14px, 3vw, 28px) 0;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -1281,6 +1284,65 @@ button {
   height: 8px;
 }
 
+/* toolbar: search + page-level actions (search, add cluster, undo/redo) */
+.config-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px clamp(14px, 3vw, 28px) 0;
+}
+
+.config-search {
+  flex: 1 1 200px;
+  max-width: 340px;
+  min-width: 0;
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line-soft);
+  background: rgba(255, 236, 200, 0.02);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color 0.2s;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.config-search::placeholder { color: var(--faint); }
+.config-search:focus { border-color: rgba(232, 184, 75, 0.45); }
+.config-search::-webkit-search-cancel-button { -webkit-appearance: none; }
+
+.config-toolbar-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.btn.chip {
+  flex: none;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px dashed var(--line);
+  color: var(--dim);
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+  transition: color 0.2s, border-color 0.2s;
+}
+.btn.chip:hover {
+  color: var(--gold);
+  border-color: rgba(232, 184, 75, 0.45);
+}
+
+.config-search-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.76rem;
+  color: var(--dim);
+}
+
 .config-editor {
   padding: 10px clamp(14px, 3vw, 28px) 16px;
   display: flex;
@@ -1294,7 +1356,7 @@ button {
   margin: 0;
 }
 
-/* cluster + system cards */
+/* cluster + system cards — clusters carry their hue on the left edge */
 .config-card,
 .config-system {
   border: 1px solid var(--line-soft);
@@ -1304,10 +1366,21 @@ button {
   scroll-margin-top: 76px;
   scroll-margin-bottom: 96px;
 }
+.config-card {
+  border-left-width: 3px;
+}
 .config-card.open,
 .config-system.open {
   border-color: var(--line);
   background: rgba(255, 236, 200, 0.03);
+}
+/* the inline hue color on .config-card's left edge wins over the shorthand */
+
+/* level 2 sits one step inside its cluster on roomy screens */
+@media (min-width: 761px) {
+  .config-system {
+    margin-left: 16px;
+  }
 }
 
 .config-card-head,
@@ -1344,9 +1417,53 @@ button {
   white-space: nowrap;
 }
 
-.icon-btn.chevron { transition: transform 0.25s; font-size: 0.9rem; }
-.open > .config-card-head .icon-btn.chevron,
-.open > .config-system-head .icon-btn.chevron { transform: rotate(180deg); }
+/* chevron toggles (svg) + secondary actions that only appear on hover/focus */
+.chev-btn { color: var(--faint); }
+.chev-btn:hover { color: var(--ink); }
+
+.chev {
+  display: block;
+  transition: transform 0.25s;
+}
+.chev.open {
+  transform: rotate(180deg);
+}
+
+.icon-btn.mini {
+  width: 26px;
+  height: 26px;
+  font-size: 0.7rem;
+}
+
+.reveal {
+  opacity: 0;
+  transition: opacity 0.18s;
+}
+.config-card-head:hover .reveal,
+.config-card-head:focus-within .reveal,
+.config-system-head:hover .reveal,
+.config-system-head:focus-within .reveal,
+.link-row-main:hover .reveal,
+.link-row-main:focus-within .reveal,
+.config-card.has-issues .config-card-head .reveal {
+  opacity: 1;
+}
+@media (hover: none) {
+  .reveal {
+    opacity: 1;
+  }
+}
+
+/* generous touch targets for the config page's small round buttons */
+.config-page .icon-btn {
+  position: relative;
+}
+.config-page .icon-btn::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
+  border-radius: 50%;
+}
 
 /* animated collapse */
 .collapse {
@@ -1407,12 +1524,24 @@ button {
   accent-color: var(--gold);
 }
 
-.hue-line {
+.cluster-hue-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  max-width: 480px;
 }
-.hue-line input { flex: 1; }
+.cluster-hue-row input[type='range'] {
+  flex: 1;
+  min-width: 120px;
+  accent-color: var(--gold);
+}
+.cluster-hue-val {
+  font-size: 0.7rem;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  min-width: 34px;
+  text-align: right;
+}
 
 .config-chip {
   width: 12px;
@@ -1423,16 +1552,25 @@ button {
 }
 .config-chip.big { width: 18px; height: 18px; }
 
-/* empty + dashed add buttons */
-.config-empty {
+/* empty states double as the add button — one CTA, no dead ends */
+.btn.tile {
   border: 1px dashed var(--line);
   border-radius: 10px;
-  padding: 14px;
-  font-size: 0.78rem;
+  padding: 13px;
+  width: 100%;
   color: var(--faint);
+  font-size: 0.8rem;
   text-align: center;
+  transition: color 0.2s, border-color 0.2s;
 }
-.config-empty.big { padding: 44px 20px; font-size: 0.9rem; }
+.btn.tile:hover {
+  color: var(--gold);
+  border-color: rgba(232, 184, 75, 0.45);
+}
+.btn.tile.big {
+  padding: 44px 20px;
+  font-size: 0.9rem;
+}
 
 .btn.dashed,
 .btn.ghost.dashed {
@@ -1445,42 +1583,53 @@ button {
   border-color: rgba(232, 184, 75, 0.4);
 }
 
-/* link rows — compact cards that reflow on small screens */
+/* link rows — name + URL up front; kind/style/tint/description fold away */
 .config-links {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.config-links-label {
-  font-size: 0.6rem;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--faint);
-}
 
 .link-row {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 8px;
   border: 1px solid var(--line-soft);
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.16);
-  padding: 10px;
+  padding: 9px 10px;
+  scroll-margin-top: 76px;
+  scroll-margin-bottom: 96px;
 }
-.link-row-top {
+.link-row.invalid {
+  border-color: rgba(210, 39, 48, 0.45);
+}
+
+.link-row-main {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
+.link-gutter {
+  display: flex;
+  gap: 2px;
+  flex: none;
+}
 .link-name {
-  flex: 1;
-  min-width: 40px;
+  flex: 1 1 120px;
+  min-width: 80px;
   font-weight: 600;
+}
+.link-url {
+  flex: 1.6 1 180px;
+  min-width: 130px;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 0.76rem;
 }
 .link-row input,
 .link-row select {
-  font: inherit;
+  font-family: inherit;
   font-size: 0.84rem;
   color: var(--ink);
   background: rgba(255, 255, 255, 0.04);
@@ -1488,22 +1637,70 @@ button {
   border-radius: 8px;
   padding: 7px 9px;
   outline: none;
+  min-width: 0;
   transition: border-color 0.2s;
 }
 .link-row input:focus,
 .link-row select:focus { border-color: rgba(232, 184, 75, 0.45); }
-.link-url {
-  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
-  font-size: 0.76rem;
+.link-row input::placeholder { color: var(--faint); }
+
+.link-more.on {
+  color: var(--gold);
+  border-color: var(--line);
 }
-.link-row-opts {
+
+.link-row-details {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 2px;
 }
-.link-row-opts select { flex: 1; min-width: 96px; }
-.link-row-opts input { width: 88px; }
-.link-desc { font-size: 0.78rem; color: var(--dim); }
+
+.link-warns {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: #f0b26b;
+}
+.link-warns span::before {
+  content: '·';
+  margin-right: 6px;
+  opacity: 0.7;
+}
+.link-row.invalid .link-warns {
+  color: #ff9d9d;
+}
+
+/* system-level settings (rank, sun look, url, description) */
+.sys-detail-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  padding: 5px 10px;
+  margin-left: -10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  color: var(--faint);
+  font-family: inherit;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+.sys-detail-toggle:hover {
+  color: var(--ink);
+  border-color: var(--line-soft);
+}
+.config-system-details {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 2px;
+}
 
 .config-kind {
   width: 10px;
@@ -1600,6 +1797,147 @@ button {
   gap: 10px;
 }
 
+.config-issue-pill {
+  padding: 3px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(210, 39, 48, 0.5);
+  background: rgba(210, 39, 48, 0.08);
+  color: #ff9d9d;
+  font-family: inherit;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+.config-issue-pill:hover {
+  border-color: var(--red);
+  color: #ffc9c9;
+}
+
+/* issue badge on card/row heads */
+.config-issue-badge {
+  flex: none;
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(210, 39, 48, 0.55);
+  background: rgba(210, 39, 48, 0.14);
+  color: #ff9d9d;
+  font-size: 0.66rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* ---------------- review modal (diff before publish) ---------------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(2, 2, 14, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: fadeIn 0.2s both;
+}
+
+.modal {
+  width: min(520px, 100%);
+  max-height: min(78vh, 640px);
+  display: flex;
+  flex-direction: column;
+  padding: 22px 24px;
+  animation: popIn 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
+}
+
+.modal-title {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 1.15rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.modal-sub {
+  margin-top: 6px;
+  font-size: 0.82rem;
+  color: var(--dim);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+.modal-actions .btn {
+  flex: none;
+  min-width: 120px;
+}
+
+.diff-list {
+  margin-top: 16px;
+  overflow-y: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.diff-none {
+  font-size: 0.82rem;
+  color: var(--faint);
+  text-align: center;
+  padding: 8px 0;
+}
+
+.diff-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.diff-group-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.diff-line {
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: var(--dim);
+  overflow-wrap: anywhere;
+}
+.diff-group.add .diff-line { color: #8fe6b4; }
+.diff-group.del .diff-line { color: #ff9d9d; }
+.diff-group.chg .diff-line { color: var(--gold); }
+
+.config-toast-action {
+  margin-left: 14px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--gold);
+  font-family: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+.config-toast-action:hover {
+  color: #ffe7ae;
+  border-color: rgba(232, 184, 75, 0.5);
+}
+
 .btn.primary[disabled] {
   opacity: 0.45;
   cursor: default;
@@ -1610,24 +1948,43 @@ button {
 /* ---------------- responsive ---------------- */
 
 @media (max-width: 760px) {
+  .config-bar { gap: 10px; }
   .config-bar-title { font-size: 0.85rem; letter-spacing: 0.12em; }
   .config-tabs button { padding: 6px 12px; font-size: 0.78rem; }
-  .cluster-nav { position: sticky; top: 55px; z-index: 25; background: rgba(10, 8, 16, 0.72); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  .config-sync-chip { padding: 7px 10px; }
   .config-card-body, .config-system-body { padding: 2px 10px 12px; }
   .config-card-head, .config-system-head { padding: 9px 10px; gap: 8px; }
   .config-count { display: none; }
+}
+
+/* link rows stack: name row + url row; reorder gutter goes vertical */
+@media (max-width: 700px) {
+  .link-row-main {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    grid-template-areas:
+      'gutter name more del'
+      'gutter url url url';
+    align-items: center;
+  }
+  .link-gutter {
+    grid-area: gutter;
+    flex-direction: column;
+  }
+  .link-name { grid-area: name; }
+  .link-url { grid-area: url; }
+  .link-more { grid-area: more; }
+  .link-del { grid-area: del; }
+  .link-row .config-kind { display: none; }
 }
 
 @media (max-width: 520px) {
   .config-bar { flex-wrap: wrap; row-gap: 8px; padding-top: 12px; }
   .config-bar-title { margin-right: auto; }
   .config-tabs { margin-left: auto; }
-  .cluster-nav { top: 96px; }
-  .link-row-opts {
-    display: grid;
-    grid-template-columns: 1fr 1fr 78px;
-  }
-  .link-row-opts select { min-width: 0; width: 100%; }
+  .config-sync-wrap { margin-left: 0; }
+  .config-sync-chip .sync-label { display: none; }
+  .config-toolbar-btns { margin-left: 0; }
   .config-foot { flex-direction: column; align-items: stretch; }
   .config-foot-actions .btn { flex: 1; }
   .config-toast { bottom: 118px; }

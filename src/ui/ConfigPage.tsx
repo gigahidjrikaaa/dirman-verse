@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from 'react'
 import {
@@ -15,6 +16,7 @@ import {
   resetGalaxyData,
   saveGalaxyData,
   slugify,
+  withUrlScheme,
   type BodyDef,
   type GalaxyData,
   type SystemDef,
@@ -40,6 +42,43 @@ const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v))
 
 function newId(name: string): string {
   return `${slugify(name) || 'link'}-${Math.random().toString(36).slice(2, 5)}`
+}
+
+/** "https://www.figma.com/file/x" → "Figma" — a starting name for pasted URLs */
+function nameFromUrl(url: string): string {
+  const raw = url.trim()
+  if (!raw) return ''
+  try {
+    const u = new URL(/^[a-z]+:\/\//i.test(raw) ? raw : `https://${raw}`)
+    const host = u.hostname.replace(/^www\./, '')
+    const label =
+      (host.split('.')[0] || u.pathname.split('/').filter(Boolean)[0] || '').replace(/[-_]+/g, ' ')
+    return label ? label.charAt(0).toUpperCase() + label.slice(1) : ''
+  } catch {
+    return ''
+  }
+}
+
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      className={`chev ${open ? 'open' : ''}`}
+      viewBox="0 0 12 12"
+      width="11"
+      height="11"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d="M2.5 4.25 6 7.75l3.5-3.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
 }
 
 /** smooth animated collapse (grid-rows trick — no janky max-height) */
@@ -117,6 +156,10 @@ function DiffList({ diff }: { diff: GalaxyDiff }) {
  * (dirman-galaxy-draft). Publishing is explicit: review the diff, then
  * push to the Dirman Dex server (admin) — separated so drafts never
  * change the live galaxy sight-unseen.
+ *
+ * Layout: backend sync lives in a header chip so the editor is the page;
+ * link rows show only name + URL — kind/style/tint/description fold into
+ * a per-row "more" disclosure, auto-opened when any of them is set.
  */
 export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
   // ----- draft + history -----
@@ -147,6 +190,9 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
     () => new Set(draft.sectors.slice(0, 1).map((s) => s.id)),
   )
   const [openSystems, setOpenSystems] = useState<Set<string>>(() => new Set())
+  /** explicit open/closed overrides for the progressive disclosures */
+  const [sysSettingsOv, setSysSettingsOv] = useState<Record<string, boolean>>({})
+  const [linkDetailsOv, setLinkDetailsOv] = useState<Record<string, boolean>>({})
   const [review, setReview] = useState<null | {
     diff: GalaxyDiff
     target: 'backend' | 'local'
@@ -159,7 +205,8 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
 
   // ----- backend + session state -----
   const [auth] = useState<AuthState | null>(() => loadAuth())
-  const [backendOpen, setBackendOpen] = useState(false)
+  const [syncOpen, setSyncOpen] = useState(false)
+  const syncWrapRef = useRef<HTMLDivElement | null>(null)
   const [backendStatus, setBackendStatus] = useState<'idle' | 'checking' | 'ok' | 'error'>('idle')
   const [backendMsg, setBackendMsg] = useState('')
   const [backendDataset, setBackendDataset] = useState<GalaxyData | null>(null)
@@ -197,6 +244,25 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // close the sync popover on outside click / Escape
+  useEffect(() => {
+    if (!syncOpen) return
+    const onDown = (e: PointerEvent) => {
+      if (syncWrapRef.current && !syncWrapRef.current.contains(e.target as Node)) {
+        setSyncOpen(false)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSyncOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [syncOpen])
 
   // ----- validation + derived -----
   const issues = useMemo(() => validateGalaxy(draft), [draft])
@@ -365,15 +431,6 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
   const scrollToCluster = (id: string) =>
     document.getElementById(`cluster-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
-  const scrollToSystem = (id: string) =>
-    setTimeout(
-      () =>
-        document
-          .getElementById(`system-${id}`)
-          ?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
-      60,
-    )
-
   const addSector = () =>
     update((d) => {
       const id = newId('cluster')
@@ -410,15 +467,19 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
       ;[s[si], s[j]] = [s[j], s[si]]
     })
 
-  const addSystem = (si: number) =>
+  const addSystem = (si: number) => {
+    const id = newId('system')
     update((d) => {
       const s = d.sectors[si]
       if (!s) return
-      const id = newId('system')
-      s.systems.push({ id, name: 'New system', importance: 2, bodies: [] })
-      setOpenSystems((prev) => new Set(prev).add(id))
-      scrollToSystem(id)
+      s.systems.push({ id, name: '', importance: 2, bodies: [] })
     })
+    setOpenSystems((prev) => new Set(prev).add(id))
+    setTimeout(
+      () => (document.getElementById(`sys-name-${id}`) as HTMLInputElement | null)?.focus(),
+      60,
+    )
+  }
 
   const removeSystem = (si: number, yi: number) => {
     const s = draftRef.current.sectors[si]
@@ -427,7 +488,7 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
     update((d) => {
       d.sectors[si]?.systems.splice(yi, 1)
     })
-    showToast(`Deleted “${removed.name}”.`, {
+    showToast(`Deleted “${removed.name || 'system'}”.`, {
       label: 'Undo',
       run: () =>
         update((d) => {
@@ -445,12 +506,18 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
       ;[sys[yi], sys[j]] = [sys[j], sys[yi]]
     })
 
-  const addBody = (si: number, yi: number) =>
+  /** new link row: empty + focused, so pasting a URL is the whole job */
+  const addBody = (si: number, yi: number, focusField: 'name' | 'url' = 'url') => {
+    const id = newId('link')
     update((d) => {
       const y = d.sectors[si]?.systems[yi]
       if (!y) return
-      y.bodies.push({ id: newId('link'), name: 'New link', url: 'https://', kind: 'planet' })
+      y.bodies.push({ id, name: '', url: '', kind: 'planet' })
     })
+    setTimeout(() => {
+      ;(document.getElementById(`link-${focusField}-${id}`) as HTMLInputElement | null)?.focus()
+    }, 60)
+  }
 
   const removeBody = (si: number, yi: number, bi: number) => {
     const y = draftRef.current.sectors[si]?.systems[yi]
@@ -459,7 +526,7 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
     update((d) => {
       d.sectors[si]?.systems[yi]?.bodies.splice(bi, 1)
     })
-    showToast(`Deleted link “${removed.name}”.`, {
+    showToast(`Deleted link “${removed.name || 'untitled'}”.`, {
       label: 'Undo',
       run: () =>
         update((d) => {
@@ -478,6 +545,36 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
       ;[bodies[bi], bodies[j]] = [bodies[j], bodies[bi]]
     })
 
+  /** on URL blur/Enter: add the scheme, and name the link from its domain
+      when the name is still empty — paste is all the user has to do */
+  const commitBodyUrl = (si: number, yi: number, bi: number) => {
+    const b = draftRef.current.sectors[si]?.systems[yi]?.bodies[bi]
+    if (!b) return
+    const fixed = withUrlScheme(b.url.trim())
+    const patch: Partial<BodyDef> = {}
+    if (fixed && fixed !== b.url) patch.url = fixed
+    if (!b.name.trim()) {
+      const derived = nameFromUrl(fixed)
+      if (derived) patch.name = derived
+    }
+    if (patch.url !== undefined || patch.name !== undefined)
+      patchBody(si, yi, bi, patch, `b:${si}:${yi}:${bi}:commit`)
+  }
+
+  /** Enter in a link row commits it and opens the next row for batch entry */
+  const onLinkEnter = (
+    e: ReactKeyboardEvent,
+    si: number,
+    yi: number,
+    bi: number,
+    from: 'name' | 'url',
+  ) => {
+    if (e.key !== 'Enter' || e.shiftKey) return
+    e.preventDefault()
+    if (from === 'url') commitBodyUrl(si, yi, bi)
+    addBody(si, yi, 'url')
+  }
+
   // ----- JSON tab -----
   useEffect(() => {
     if (tab === 'json') setJsonText(exportGalaxyJson(draftRef.current))
@@ -487,7 +584,7 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
   const applyJson = () => {
     const parsed = parseGalaxyJson(jsonText)
     if (!parsed) {
-      showToast('⚠️ Invalid JSON — nothing applied.')
+      showToast('Invalid JSON — nothing applied.')
       return
     }
     replaceDraftState(parsed, true)
@@ -512,7 +609,7 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
     file.text().then((text) => {
       const parsed = parseGalaxyJson(text)
       if (!parsed) {
-        showToast('⚠️ That file is not a valid galaxy dataset.')
+        showToast('That file is not a valid galaxy dataset.')
         return
       }
       replaceDraftState(parsed, true)
@@ -548,7 +645,7 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
 
   const requestReview = (target: 'backend' | 'local') => {
     if (errorCount > 0) {
-      showToast(`⚠️ Fix ${errorCount} issue${errorCount === 1 ? '' : 's'} before saving`)
+      showToast(`Fix ${errorCount} issue${errorCount === 1 ? '' : 's'} before saving`)
       return
     }
     const before =
@@ -583,7 +680,7 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
     const target = review?.target ?? 'local'
     const clean = normalizeGalaxy(draftRef.current)
     if (!clean) {
-      showToast('⚠️ Dataset invalid — nothing saved.')
+      showToast('Dataset invalid — nothing saved.')
       return
     }
     setSaving(true)
@@ -617,9 +714,9 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
           theirs: err.current.data ? normalizeGalaxy(err.current.data) : null,
         })
       } else if (err instanceof Error && err.message.includes('admin')) {
-        showToast('⚠️ Admin role required to publish. You are signed in, but not as an admin.')
+        showToast('Admin role required to publish. You are signed in, but not as an admin.')
       } else {
-        showToast('⚠️ ' + (err instanceof Error ? err.message : 'Save failed'))
+        showToast(err instanceof Error ? err.message : 'Save failed')
       }
       setSaving(false)
     }
@@ -652,10 +749,9 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
   const loadBackendDatasetIntoEditor = () => {
     if (!backendDataset) return
     replaceDraftState(backendDataset, true)
+    setSyncOpen(false)
     showToast('Server dataset loaded into the editor.')
   }
-
-  const publishNow = () => requestReview('backend')
 
   const signOut = async () => {
     if (dirty && !window.confirm('Sign out? Unsaved changes stay as a local draft.')) return
@@ -663,11 +759,81 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
     onSignOut?.()
   }
 
+  /** scroll to + focus the first blocking issue, opening anything collapsed */
+  const scrollToFirstIssue = () => {
+    const first = issues.find((i) => i.level === 'error')
+    if (!first) return
+    const [kind, a, b, c] = first.key.split(':')
+    const si = Number(a)
+    const sector = draft.sectors[si]
+    if (!sector) return
+    if (kind === 's') {
+      setOpenClusters((prev) => new Set(prev).add(sector.id))
+      setTimeout(() => {
+        document
+          .getElementById(`cluster-${sector.id}`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        if (first.key.endsWith(':name'))
+          (document.getElementById(`cluster-name-${sector.id}`) as HTMLInputElement | null)?.focus()
+      }, 80)
+      return
+    }
+    const sys = sector.systems[Number(b)]
+    if (!sys) return
+    setOpenClusters((prev) => new Set(prev).add(sector.id))
+    setOpenSystems((prev) => new Set(prev).add(sys.id))
+    if (kind === 'y') {
+      setTimeout(() => {
+        document
+          .getElementById(`system-${sys.id}`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        if (first.key.endsWith(':name'))
+          (document.getElementById(`sys-name-${sys.id}`) as HTMLInputElement | null)?.focus()
+      }, 80)
+      return
+    }
+    const body = sys.bodies[Number(c)]
+    if (!body) return
+    const field = first.key.endsWith(':name') ? 'name' : 'url'
+    setTimeout(() => {
+      document.getElementById(`link-${body.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      ;(document.getElementById(`link-${field}-${body.id}`) as HTMLInputElement | null)?.focus()
+    }, 120)
+  }
+
   const q = query.trim().toLowerCase()
   const searching = q !== ''
   const matchText = (t: string) => t.toLowerCase().includes(q)
 
+  /** a link's "more" panel opens by default when anything non-default is set */
+  const linkDetailsOpen = (body: BodyDef) => {
+    const ov = linkDetailsOv[body.id]
+    if (ov !== undefined) return ov
+    if (searching && matchText(body.description ?? '')) return true
+    return Boolean(
+      body.description || body.style || body.tint !== undefined || body.kind === 'moon',
+    )
+  }
+
+  const sysHasSettings = (sys: SystemDef) =>
+    Boolean(
+      sys.style ||
+        sys.tint !== undefined ||
+        sys.url ||
+        sys.description ||
+        (sys.importance ?? 2) !== 2,
+    )
+  const sysSettingsOpen = (sys: SystemDef) => sysSettingsOv[sys.id] ?? sysHasSettings(sys)
+
   const targetForFoot = serverDetected === false ? 'local' : 'backend'
+  const syncLabel =
+    backendStatus === 'checking'
+      ? 'Checking…'
+      : serverDetected === false
+        ? 'Offline — local only'
+        : auth
+          ? 'Synced'
+          : 'Not signed in'
 
   return (
     <div className="config-page">
@@ -677,9 +843,7 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
         </button>
         <div className="config-bar-title">
           LINK MANAGER
-          <span className={`config-dirty-tag ${dirty ? 'show' : ''}`}>
-            {dirty ? '● unsaved' : 'saved'}
-          </span>
+          <span className={`config-dirty-tag ${dirty ? 'show' : ''}`}>{dirty ? '● unsaved' : ''}</span>
         </div>
         <div className="config-tabs" role="tablist">
           <button role="tab" aria-selected={tab === 'editor'} className={tab === 'editor' ? 'on' : ''} onClick={() => setTab('editor')}>
@@ -689,100 +853,94 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
             JSON
           </button>
         </div>
-      </header>
-
-      <section className="config-backend">
-        <button
-          className="config-backend-head"
-          onClick={() => setBackendOpen(!backendOpen)}
-          aria-expanded={backendOpen}
-        >
-          <span className="config-backend-dot" data-state={backendStatus} />
-          <span className="config-backend-title">Backend sync</span>
-          <span className="config-backend-sub">
-            {backendStatus === 'checking'
-              ? 'checking…'
-              : serverDetected === false
-                ? 'offline — saving locally only'
-                : auth
-                  ? `signed in as ${auth.user.name || auth.user.email}`
-                  : 'not signed in'}
-          </span>
-          <span className="icon-btn chevron" aria-hidden>⌄</span>
-        </button>
-        <Collapse open={backendOpen}>
-          <div className="config-backend-body">
-            <p className="config-hint">
-              Publishing pushes this dataset to the Dirman Dex server, so every
-              device — and every visitor — sees the same galaxy. An{' '}
-              <code>admin</code> role is required to publish.
-            </p>
-            {auth ? (
-              <div className="config-session">
-                <span className="config-session-user">
-                  Signed in as <strong>{auth.user.name || auth.user.email}</strong>
-                  <span className="config-session-role">{auth.user.role}</span>
-                </span>
-                <button className="btn ghost small" onClick={signOut}>
-                  Sign out
-                </button>
-              </div>
-            ) : (
-              <div className="config-backend-msg" data-state="error">
-                Not signed in — reload the page to log in.
-              </div>
-            )}
-            {backendMsg && (
-              <div className="config-backend-msg" data-state={backendStatus}>
-                {backendMsg}
-              </div>
-            )}
-            <div className="config-actions">
-              <button
-                className="btn ghost small"
-                onClick={probeBackend}
-                disabled={backendStatus === 'checking'}
-              >
-                {backendStatus === 'checking' ? 'Checking…' : 'Re-check server'}
-              </button>
-              {backendDataset && (
-                <button className="btn ghost small" onClick={loadBackendDatasetIntoEditor}>
-                  Load server dataset
-                </button>
+        <div className="config-sync-wrap" ref={syncWrapRef}>
+          <button
+            className={`config-sync-chip ${syncOpen ? 'on' : ''}`}
+            onClick={() => setSyncOpen((v) => !v)}
+            aria-expanded={syncOpen}
+            aria-haspopup="dialog"
+            title="Backend sync"
+          >
+            <span
+              className="config-backend-dot"
+              data-state={backendStatus === 'ok' && !auth ? 'warn' : backendStatus}
+              aria-hidden="true"
+            />
+            <span className="sync-label">{syncLabel}</span>
+          </button>
+          {syncOpen && (
+            <div className="config-sync-pop" role="dialog" aria-label="Backend sync">
+              <div className="config-pop-title">Backend sync</div>
+              <p className="config-hint">
+                Publishing pushes this dataset to the Dirman Dex server, so every
+                device — and every visitor — sees the same galaxy. An{' '}
+                <code>admin</code> role is required to publish.
+              </p>
+              {auth ? (
+                <div className="config-session">
+                  <span className="config-session-user">
+                    Signed in as <strong>{auth.user.name || auth.user.email}</strong>
+                    <span className="config-session-role">{auth.user.role}</span>
+                  </span>
+                  <button className="btn ghost small" onClick={signOut}>
+                    Sign out
+                  </button>
+                </div>
+              ) : (
+                <div className="config-backend-msg" data-state="error">
+                  Not signed in — reload the page to log in.
+                </div>
               )}
-              <button
-                className="btn primary small"
-                onClick={publishNow}
-                disabled={saving || backendStatus !== 'ok'}
-              >
-                {saving ? 'Saving…' : 'Publish to server'}
-              </button>
+              {backendMsg && (
+                <div className="config-backend-msg" data-state={backendStatus}>
+                  {backendMsg}
+                </div>
+              )}
+              <div className="config-actions">
+                <button
+                  className="btn ghost small"
+                  onClick={probeBackend}
+                  disabled={backendStatus === 'checking'}
+                >
+                  {backendStatus === 'checking' ? 'Checking…' : 'Re-check server'}
+                </button>
+                {backendDataset && (
+                  <button className="btn ghost small" onClick={loadBackendDatasetIntoEditor}>
+                    Load server dataset
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-        </Collapse>
-      </section>
+          )}
+        </div>
+      </header>
 
       {tab === 'editor' ? (
         <>
+          {draft.sectors.length > 1 && !searching && (
+            <nav className="cluster-nav" aria-label="Jump to cluster">
+              {draft.sectors.map((s) => (
+                <button key={s.id} onClick={() => scrollToCluster(s.id)}>
+                  <span className="config-chip" style={{ background: hueColor(s.hue) }} />
+                  {s.name}
+                </button>
+              ))}
+            </nav>
+          )}
+
           <div className="config-toolbar">
-            {draft.sectors.length > 1 && !searching && (
-              <nav className="cluster-nav" aria-label="Jump to cluster">
-                {draft.sectors.map((s) => (
-                  <button key={s.id} onClick={() => scrollToCluster(s.id)}>
-                    <span className="config-chip" style={{ background: hueColor(s.hue) }} />
-                    {s.name}
-                  </button>
-                ))}
-              </nav>
-            )}
             <input
               className="config-search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search links, systems…"
               aria-label="Search the editor"
+              type="search"
             />
             <div className="config-toolbar-btns">
+              <button className="btn chip" onClick={addSector}>
+                + Cluster
+              </button>
               <button className="icon-btn" onClick={undo} disabled={!canUndo} aria-label="Undo" title="Undo (Ctrl+Z)">↶</button>
               <button className="icon-btn" onClick={redo} disabled={!canRedo} aria-label="Redo" title="Redo (Ctrl+Y)">↷</button>
             </div>
@@ -790,9 +948,8 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
 
           <div className="config-editor">
             <p className="config-hint">
-              Clusters become spiral stretches along the march route — the first
-              one sits at the core of the galaxy. Autosaved locally as you type;
-              publishing makes it live for everyone.
+              Everything autosaves in this browser — “Review &amp; publish” makes it
+              live for everyone. Clusters hold systems, systems hold links.
             </p>
 
             {searching && (
@@ -827,18 +984,19 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
                   key={sector.id}
                   id={`cluster-${sector.id}`}
                   className={`config-card ${clusterOpen ? 'open' : ''} ${issuesHere.length ? 'has-issues' : ''}`}
+                  style={{ borderLeftColor: hueColor(sector.hue) }}
                 >
                   <div className="config-card-head">
                     <button
-                      className="icon-btn chevron"
+                      className="icon-btn chev-btn"
                       aria-expanded={clusterOpen}
                       aria-label={clusterOpen ? 'Collapse cluster' : 'Expand cluster'}
                       onClick={() => toggleSet(setOpenClusters, sector.id)}
                     >
-                      ⌄
+                      <Chevron open={clusterOpen} />
                     </button>
-                    <span className="config-chip" style={{ background: hueColor(sector.hue) }} />
                     <input
+                      id={`cluster-name-${sector.id}`}
                       className="config-title-input"
                       value={sector.name}
                       placeholder="Cluster name"
@@ -850,178 +1008,138 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
                     <span className="config-count">
                       {sector.systems.length} sys · {clusterLinks} links
                     </span>
-                    <div className="config-rowbtns">
-                      <button className="icon-btn" title="Move up" onClick={() => moveSector(si, -1)}>↑</button>
-                      <button className="icon-btn" title="Move down" onClick={() => moveSector(si, 1)}>↓</button>
-                      <button className="icon-btn danger" title="Delete cluster" onClick={() => removeSector(si)}>✕</button>
+                    <div className="config-rowbtns reveal">
+                      <button className="icon-btn mini" title="Move up" aria-label={`Move ${sector.name} up`} onClick={() => moveSector(si, -1)}>↑</button>
+                      <button className="icon-btn mini" title="Move down" aria-label={`Move ${sector.name} down`} onClick={() => moveSector(si, 1)}>↓</button>
+                      <button className="icon-btn mini danger" title="Delete cluster" aria-label={`Delete ${sector.name}`} onClick={() => removeSector(si)}>✕</button>
                     </div>
                   </div>
 
                   <Collapse open={clusterOpen}>
                     <div className="config-card-body">
-                      <div className="config-fields">
-                        <label className="field grow">
-                          <span>Hue {sector.hue}°</span>
-                          <div className="hue-line">
-                            <input
-                              type="range"
-                              min={0}
-                              max={359}
-                              value={sector.hue}
-                              onChange={(e) => patchSector(si, { hue: Number(e.target.value) }, `s:${si}:hue`)}
-                            />
-                            <span className="config-chip big" style={{ background: hueColor(sector.hue) }} />
-                          </div>
-                        </label>
+                      <div className="cluster-hue-row">
+                        <span className="config-chip" style={{ background: hueColor(sector.hue) }} aria-hidden="true" />
+                        <input
+                          type="range"
+                          min={0}
+                          max={359}
+                          value={sector.hue}
+                          aria-label="Cluster color"
+                          onChange={(e) => patchSector(si, { hue: Number(e.target.value) }, `s:${si}:hue`)}
+                        />
+                        <span className="cluster-hue-val">{sector.hue}°</span>
                       </div>
 
                       {sector.systems.length === 0 && (
-                        <div className="config-empty">No systems yet in this cluster.</div>
+                        <button className="btn tile" onClick={() => addSystem(si)}>
+                          + Add the first system
+                        </button>
                       )}
 
                       {visibleSystems.map((sys) => {
                         const yi = sector.systems.indexOf(sys)
                         const sysOpen = searching || openSystems.has(sys.id)
+                        const sysIssues = issues.some(
+                          (i) => i.key === `y:${si}:${yi}:name` || i.key === `y:${si}:${yi}:dup`,
+                        )
+                        const settingsOpen = searching ? sysHasSettings(sys) : sysSettingsOpen(sys)
                         return (
                           <section key={sys.id} id={`system-${sys.id}`} className={`config-system ${sysOpen ? 'open' : ''}`}>
                             <div className="config-system-head">
                               <button
-                                className="icon-btn chevron"
+                                className="icon-btn chev-btn"
                                 aria-expanded={sysOpen}
                                 aria-label={sysOpen ? 'Collapse system' : 'Expand system'}
                                 onClick={() => toggleSet(setOpenSystems, sys.id)}
                               >
-                                ⌄
+                                <Chevron open={sysOpen} />
                               </button>
-                              <span className="config-kind sun" />
+                              <span className="config-kind sun" aria-hidden="true" />
                               <input
+                                id={`sys-name-${sys.id}`}
                                 className="config-title-input"
                                 value={sys.name}
                                 placeholder="System name"
                                 onChange={(e) => patchSystem(si, yi, { name: e.target.value }, `y:${si}:${yi}:name`)}
                               />
-                              {issues.some((i) => i.key === `y:${si}:${yi}:name` || i.key === `y:${si}:${yi}:dup`) && (
-                                <span className="config-issue-badge">!</span>
-                              )}
+                              {sysIssues && <span className="config-issue-badge">!</span>}
                               <span className="config-count">{sys.bodies.length} links</span>
-                              <div className="config-rowbtns">
-                                <button className="icon-btn" title="Move up" onClick={() => moveSystem(si, yi, -1)}>↑</button>
-                                <button className="icon-btn" title="Move down" onClick={() => moveSystem(si, yi, 1)}>↓</button>
-                                <button className="icon-btn danger" title="Delete system" onClick={() => removeSystem(si, yi)}>✕</button>
+                              <div className="config-rowbtns reveal">
+                                <button className="icon-btn mini" title="Move up" aria-label={`Move ${sys.name || 'system'} up`} onClick={() => moveSystem(si, yi, -1)}>↑</button>
+                                <button className="icon-btn mini" title="Move down" aria-label={`Move ${sys.name || 'system'} down`} onClick={() => moveSystem(si, yi, 1)}>↓</button>
+                                <button className="icon-btn mini danger" title="Delete system" aria-label={`Delete ${sys.name || 'system'}`} onClick={() => removeSystem(si, yi)}>✕</button>
                               </div>
                             </div>
 
                             <Collapse open={sysOpen}>
                               <div className="config-system-body">
-                                <div className="config-fields three">
-                                  <label className="field">
-                                    <span>Rank</span>
-                                    <select
-                                      value={sys.importance ?? 2}
-                                      onChange={(e) =>
-                                        patchSystem(si, yi, { importance: Number(e.target.value) as 1 | 2 | 3 }, `y:${si}:${yi}:imp`)
-                                      }
-                                    >
-                                      <option value={1}>★</option>
-                                      <option value={2}>★★</option>
-                                      <option value={3}>★★★</option>
-                                    </select>
-                                  </label>
-                                  <label className="field">
-                                    <span>Sun style</span>
-                                    <select
-                                      value={sys.style ?? 'auto'}
-                                      onChange={(e) =>
-                                        patchSystem(si, yi, e.target.value === 'auto'
-                                          ? { style: undefined }
-                                          : { style: e.target.value }, `y:${si}:${yi}:style`)
-                                      }
-                                    >
-                                      {SUN_STYLES.map((s) => <option key={s} value={s}>{s}</option>)}
-                                    </select>
-                                  </label>
-                                  <label className="field">
-                                    <span>Tint (hue shift)</span>
-                                    <input
-                                      type="number"
-                                      min={-40}
-                                      max={40}
-                                      placeholder="auto"
-                                      value={sys.tint ?? ''}
-                                      onChange={(e) =>
-                                        patchSystem(si, yi, e.target.value === ''
-                                          ? { tint: undefined }
-                                          : { tint: Number(e.target.value) }, `y:${si}:${yi}:tint`)
-                                      }
-                                    />
-                                  </label>
-                                </div>
-                                <div className="config-fields">
-                                  <label className="field grow">
-                                    <span>System URL (optional)</span>
-                                    <input
-                                      inputMode="url"
-                                      value={sys.url ?? ''}
-                                      placeholder="https://…"
-                                      onChange={(e) => patchSystem(si, yi, { url: e.target.value }, `y:${si}:${yi}:url`)}
-                                    />
-                                  </label>
-                                  <label className="field grow">
-                                    <span>Description</span>
-                                    <input
-                                      value={sys.description ?? ''}
-                                      onChange={(e) => patchSystem(si, yi, { description: e.target.value }, `y:${si}:${yi}:desc`)}
-                                    />
-                                  </label>
-                                </div>
-
                                 <div className="config-links">
-                                  <div className="config-links-label">
-                                    {sys.bodies.length} link{sys.bodies.length === 1 ? '' : 's'}
-                                  </div>
-                                  {sys.bodies.length === 0 && (
-                                    <div className="config-empty">No links yet — add the first one.</div>
-                                  )}
                                   {sys.bodies.map((body, bi) => {
-                                    const bodyIssues = issues.filter((i) =>
-                                      i.key.startsWith(`b:${si}:${yi}:${bi}:`) && i.level === 'error'
+                                    const bodyIssues = issues.filter(
+                                      (i) =>
+                                        i.key.startsWith(`b:${si}:${yi}:${bi}:`) && i.level === 'error',
                                     )
                                     const warns = issues.filter(
-                                      (i) => i.key.startsWith(`b:${si}:${yi}:${bi}:`) && i.level === 'warning',
+                                      (i) =>
+                                        i.key.startsWith(`b:${si}:${yi}:${bi}:`) && i.level === 'warning',
                                     )
+                                    const detailsOpen = linkDetailsOpen(body)
                                     return (
                                       <div
                                         key={body.id}
+                                        id={`link-${body.id}`}
                                         className={`link-row ${bodyIssues.length ? 'invalid' : ''}`}
                                       >
-                                        <div className="link-row-top">
-                                          <span className={`config-kind ${body.kind ?? 'planet'}`} />
+                                        <div className="link-row-main">
+                                          <div className="link-gutter reveal">
+                                            <button className="icon-btn mini" title="Move up" aria-label={`Move ${body.name || 'link'} up`} onClick={() => moveBody(si, yi, bi, -1)}>↑</button>
+                                            <button className="icon-btn mini" title="Move down" aria-label={`Move ${body.name || 'link'} down`} onClick={() => moveBody(si, yi, bi, 1)}>↓</button>
+                                          </div>
+                                          <span className={`config-kind ${body.kind ?? 'planet'}`} aria-hidden="true" />
                                           <input
+                                            id={`link-name-${body.id}`}
                                             className="link-name"
                                             value={body.name}
-                                            placeholder="Link name"
+                                            placeholder="Name"
+                                            aria-label="Link name"
                                             onChange={(e) =>
                                               patchBody(si, yi, bi, { name: e.target.value }, `b:${si}:${yi}:${bi}:name`)
                                             }
+                                            onKeyDown={(e) => onLinkEnter(e, si, yi, bi, 'name')}
                                           />
-                                          {bodyIssues.length > 0 && (
-                                            <span className="config-issue-badge" title={bodyIssues[0].msg}>!</span>
-                                          )}
-                                          <div className="config-rowbtns">
-                                            <button className="icon-btn" title="Move up" onClick={() => moveBody(si, yi, bi, -1)}>↑</button>
-                                            <button className="icon-btn" title="Move down" onClick={() => moveBody(si, yi, bi, 1)}>↓</button>
-                                            <button className="icon-btn danger" title="Delete link" onClick={() => removeBody(si, yi, bi)}>✕</button>
-                                          </div>
+                                          <input
+                                            id={`link-url-${body.id}`}
+                                            className="link-url"
+                                            inputMode="url"
+                                            value={body.url}
+                                            placeholder="Paste a link — https://…"
+                                            aria-label="Link URL"
+                                            onChange={(e) =>
+                                              patchBody(si, yi, bi, { url: e.target.value }, `b:${si}:${yi}:${bi}:url`)
+                                            }
+                                            onBlur={() => commitBodyUrl(si, yi, bi)}
+                                            onKeyDown={(e) => onLinkEnter(e, si, yi, bi, 'url')}
+                                          />
+                                          <button
+                                            className={`icon-btn mini link-more ${detailsOpen ? 'on' : ''}`}
+                                            aria-expanded={detailsOpen}
+                                            aria-label="More link options"
+                                            title="More options"
+                                            onClick={() =>
+                                              setLinkDetailsOv((p) => ({ ...p, [body.id]: !detailsOpen }))
+                                            }
+                                          >
+                                            <Chevron open={detailsOpen} />
+                                          </button>
+                                          <button
+                                            className="icon-btn mini danger reveal link-del"
+                                            title="Delete link"
+                                            aria-label={`Delete ${body.name || 'link'}`}
+                                            onClick={() => removeBody(si, yi, bi)}
+                                          >
+                                            ✕
+                                          </button>
                                         </div>
-                                        <input
-                                          className="link-url"
-                                          inputMode="url"
-                                          value={body.url}
-                                          placeholder="https://…"
-                                          onChange={(e) =>
-                                            patchBody(si, yi, bi, { url: e.target.value }, `b:${si}:${yi}:${bi}:url`)
-                                          }
-                                        />
                                         {(warns.length > 0 || bodyIssues.length > 0) && (
                                           <div className="link-warns">
                                             {[...bodyIssues, ...warns].map((i, k) => (
@@ -1029,66 +1147,163 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
                                             ))}
                                           </div>
                                         )}
-                                        <div className="link-row-opts">
-                                          <select
-                                            value={body.kind ?? 'planet'}
-                                            aria-label="Body kind"
-                                            onChange={(e) =>
-                                              patchBody(si, yi, bi, { kind: e.target.value as 'planet' | 'moon' }, `b:${si}:${yi}:${bi}:kind`)
-                                            }
-                                          >
-                                            <option value="planet">planet</option>
-                                            <option value="moon">moon</option>
-                                          </select>
-                                          <select
-                                            value={body.style ?? 'auto'}
-                                            aria-label="Star style"
-                                            onChange={(e) =>
-                                              patchBody(si, yi, bi, e.target.value === 'auto'
-                                                ? { style: undefined }
-                                                : { style: e.target.value }, `b:${si}:${yi}:${bi}:style`)
-                                            }
-                                          >
-                                            {BODY_STYLES.map((s) => <option key={s} value={s}>{s}</option>)}
-                                          </select>
-                                          <input
-                                            type="number"
-                                            min={-40}
-                                            max={40}
-                                            placeholder="tint"
-                                            aria-label="Hue tint"
-                                            value={body.tint ?? ''}
-                                            onChange={(e) =>
-                                              patchBody(si, yi, bi, e.target.value === ''
-                                                ? { tint: undefined }
-                                                : { tint: Number(e.target.value) }, `b:${si}:${yi}:${bi}:tint`)
-                                            }
-                                          />
-                                        </div>
-                                        <input
-                                          className="link-desc"
-                                          value={body.description ?? ''}
-                                          placeholder="Description (optional — shown in the star's card)"
-                                          onChange={(e) =>
-                                            patchBody(si, yi, bi, { description: e.target.value }, `b:${si}:${yi}:${bi}:desc`)
-                                          }
-                                        />
+                                        <Collapse open={detailsOpen}>
+                                          <div className="link-row-details">
+                                            <label className="field grow">
+                                              <span>Description</span>
+                                              <input
+                                                value={body.description ?? ''}
+                                                placeholder="Shown on this star's card (optional)"
+                                                onChange={(e) =>
+                                                  patchBody(si, yi, bi, { description: e.target.value }, `b:${si}:${yi}:${bi}:desc`)
+                                                }
+                                              />
+                                            </label>
+                                            <div className="config-fields three">
+                                              <label className="field">
+                                                <span>Kind</span>
+                                                <select
+                                                  value={body.kind ?? 'planet'}
+                                                  onChange={(e) =>
+                                                    patchBody(si, yi, bi, { kind: e.target.value as 'planet' | 'moon' }, `b:${si}:${yi}:${bi}:kind`)
+                                                  }
+                                                >
+                                                  <option value="planet">planet</option>
+                                                  <option value="moon">moon</option>
+                                                </select>
+                                              </label>
+                                              <label className="field">
+                                                <span>Style</span>
+                                                <select
+                                                  value={body.style ?? 'auto'}
+                                                  onChange={(e) =>
+                                                    patchBody(si, yi, bi, e.target.value === 'auto'
+                                                      ? { style: undefined }
+                                                      : { style: e.target.value }, `b:${si}:${yi}:${bi}:style`)
+                                                  }
+                                                >
+                                                  {BODY_STYLES.map((s) => <option key={s} value={s}>{s}</option>)}
+                                                </select>
+                                              </label>
+                                              <label className="field">
+                                                <span>Tint ±40</span>
+                                                <input
+                                                  type="number"
+                                                  min={-40}
+                                                  max={40}
+                                                  placeholder="auto"
+                                                  value={body.tint ?? ''}
+                                                  onChange={(e) =>
+                                                    patchBody(si, yi, bi, e.target.value === ''
+                                                      ? { tint: undefined }
+                                                      : { tint: Number(e.target.value) }, `b:${si}:${yi}:${bi}:tint`)
+                                                  }
+                                                />
+                                              </label>
+                                            </div>
+                                          </div>
+                                        </Collapse>
                                       </div>
                                     )
                                   })}
-                                  <button className="btn ghost small dashed" onClick={() => addBody(si, yi)}>
-                                    + Add link
-                                  </button>
+                                  {sys.bodies.length === 0 ? (
+                                    <button className="btn tile" onClick={() => addBody(si, yi)}>
+                                      + Add the first link
+                                    </button>
+                                  ) : (
+                                    <button className="btn ghost small dashed" onClick={() => addBody(si, yi)}>
+                                      + Add link
+                                    </button>
+                                  )}
                                 </div>
+
+                                <button
+                                  className="sys-detail-toggle"
+                                  aria-expanded={settingsOpen}
+                                  onClick={() =>
+                                    setSysSettingsOv((p) => ({ ...p, [sys.id]: !settingsOpen }))
+                                  }
+                                >
+                                  <Chevron open={settingsOpen} />
+                                  System settings
+                                </button>
+                                <Collapse open={settingsOpen}>
+                                  <div className="config-system-details">
+                                    <div className="config-fields three">
+                                      <label className="field">
+                                        <span>Rank</span>
+                                        <select
+                                          value={sys.importance ?? 2}
+                                          onChange={(e) =>
+                                            patchSystem(si, yi, { importance: Number(e.target.value) as 1 | 2 | 3 }, `y:${si}:${yi}:imp`)
+                                          }
+                                        >
+                                          <option value={1}>★</option>
+                                          <option value={2}>★★</option>
+                                          <option value={3}>★★★</option>
+                                        </select>
+                                      </label>
+                                      <label className="field">
+                                        <span>Sun style</span>
+                                        <select
+                                          value={sys.style ?? 'auto'}
+                                          onChange={(e) =>
+                                            patchSystem(si, yi, e.target.value === 'auto'
+                                              ? { style: undefined }
+                                              : { style: e.target.value }, `y:${si}:${yi}:style`)
+                                          }
+                                        >
+                                          {SUN_STYLES.map((s) => <option key={s} value={s}>{s}</option>)}
+                                        </select>
+                                      </label>
+                                      <label className="field">
+                                        <span>Tint ±40</span>
+                                        <input
+                                          type="number"
+                                          min={-40}
+                                          max={40}
+                                          placeholder="auto"
+                                          value={sys.tint ?? ''}
+                                          onChange={(e) =>
+                                            patchSystem(si, yi, e.target.value === ''
+                                              ? { tint: undefined }
+                                              : { tint: Number(e.target.value) }, `y:${si}:${yi}:tint`)
+                                          }
+                                        />
+                                      </label>
+                                    </div>
+                                    <div className="config-fields">
+                                      <label className="field grow">
+                                        <span>System URL (optional)</span>
+                                        <input
+                                          inputMode="url"
+                                          value={sys.url ?? ''}
+                                          placeholder="https://…"
+                                          onChange={(e) => patchSystem(si, yi, { url: e.target.value }, `y:${si}:${yi}:url`)}
+                                        />
+                                      </label>
+                                      <label className="field grow">
+                                        <span>Description</span>
+                                        <input
+                                          value={sys.description ?? ''}
+                                          placeholder="Shown on the sun's card"
+                                          onChange={(e) => patchSystem(si, yi, { description: e.target.value }, `y:${si}:${yi}:desc`)}
+                                        />
+                                      </label>
+                                    </div>
+                                  </div>
+                                </Collapse>
                               </div>
                             </Collapse>
                           </section>
                         )
                       })}
 
-                      <button className="btn ghost small dashed" onClick={() => addSystem(si)}>
-                        + Add system
-                      </button>
+                      {sector.systems.length > 0 && (
+                        <button className="btn ghost small dashed" onClick={() => addSystem(si)}>
+                          + Add system
+                        </button>
+                      )}
                     </div>
                   </Collapse>
                 </section>
@@ -1096,9 +1311,10 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
             })}
 
             {draft.sectors.length === 0 && (
-              <div className="config-empty big">The galaxy is empty — add your first cluster.</div>
+              <button className="btn tile big" onClick={addSector}>
+                The galaxy is empty — add your first cluster
+              </button>
             )}
-            <button className="btn ghost dashed wide" onClick={addSector}>+ Add cluster</button>
           </div>
         </>
       ) : (
@@ -1134,15 +1350,16 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
 
       <footer className="config-foot">
         <div className="config-foot-info">
-          {draft.sectors.length} clusters · {totalSystems} systems · {totalLinks} links
-          <span className={`config-dirty-tag ${dirty ? 'show' : ''}`}>
-            {dirty ? '● unsaved — autosaved locally' : 'all saved'}
+          <span>
+            {draft.sectors.length} clusters · {totalSystems} systems · {totalLinks} links
           </span>
-          {errorCount > 0 && <span className="config-issue-badge">{errorCount} to fix</span>}
+          {errorCount > 0 && (
+            <button className="config-issue-pill" onClick={scrollToFirstIssue} title="Jump to the first issue">
+              {errorCount} to fix
+            </button>
+          )}
         </div>
         <div className="config-foot-actions">
-          <button className="icon-btn" onClick={undo} disabled={!canUndo} aria-label="Undo" title="Undo (Ctrl+Z)">↶</button>
-          <button className="icon-btn" onClick={redo} disabled={!canRedo} aria-label="Redo" title="Redo (Ctrl+Y)">↷</button>
           <button className="btn ghost small danger-text" onClick={resetDefaults}>
             Reset to defaults
           </button>
@@ -1151,7 +1368,7 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
             onClick={() => requestReview(targetForFoot)}
             disabled={saving}
           >
-            {saving ? 'Saving…' : 'Save & launch'}
+            {saving ? 'Saving…' : serverDetected === false ? 'Review & save' : 'Review & publish'}
           </button>
         </div>
       </footer>
@@ -1196,7 +1413,7 @@ export function ConfigPage({ onSignOut }: { onSignOut?: () => void }) {
       {conflict && (
         <div className="modal-backdrop">
           <div className="modal glass">
-            <h3 className="modal-title">⚠ Someone published first</h3>
+            <h3 className="modal-title">Someone published first</h3>
             <p className="modal-sub">
               Updated by <strong>{conflict.by}</strong> at{' '}
               {conflict.at ? new Date(conflict.at).toLocaleString() : '—'}. Choose a version:

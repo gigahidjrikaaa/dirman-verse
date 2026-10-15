@@ -34,17 +34,21 @@ export function validateGalaxy(d: GalaxyData): ValidationIssue[] {
       const urls = new Set<string>()
       sys.bodies.forEach((body, bi) => {
         const bKey = `b:${si}:${yi}:${bi}`
-        if (!body.name.trim()) {
-          issues.push({ key: `${bKey}:name`, level: 'error', msg: 'Link needs a name' })
-        }
         const url = body.url.trim()
         if (!url) {
+          // a just-added row (no URL yet) is a quiet draft, not an error —
+          // normalizeGalaxy drops it on save, which the warning says up front
           issues.push({
             key: `${bKey}:url`,
             level: 'warning',
             msg: 'Empty URL — this link will be removed when you save',
           })
-        } else if (!/^(https?:\/\/|mailto:)/i.test(url)) {
+          return
+        }
+        if (!body.name.trim()) {
+          issues.push({ key: `${bKey}:name`, level: 'error', msg: 'Link needs a name' })
+        }
+        if (!/^(https?:\/\/|mailto:)/i.test(url)) {
           issues.push({ key: `${bKey}:url`, level: 'warning', msg: 'URL is missing https://' })
         } else if (urls.has(url.toLowerCase())) {
           issues.push({ key: `${bKey}:urldup`, level: 'warning', msg: 'Duplicate URL in this system' })
